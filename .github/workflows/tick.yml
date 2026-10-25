@@ -1,0 +1,38 @@
+# Будильник бота «Неделя бесплатных тренировок».
+#
+# Render free засыпает, своего планировщика у него нет. Поэтому раз в 15 минут
+# GitHub дёргает /tick — бот просыпается и сам решает, кому что отправить.
+# Повторный тик ничего не дублирует: каждое сообщение уходит один раз.
+#
+# Нужен секрет репозитория TICK_URL (Settings → Secrets and variables
+# → Actions), например: https://sisters-bot.onrender.com/tick?key=ВАШ_TICK_KEY
+# Пока секрета нет — будильник молча ничего не делает.
+
+name: "Бот тренировок: тик"
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: sisters-bot-tick
+  cancel-in-progress: false
+
+jobs:
+  tick:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Разбудить бота и запустить рассылку
+        env:
+          TICK_URL: ${{ secrets.TICK_URL }}
+        run: |
+          if [ -z "$TICK_URL" ]; then
+            echo "Секрет TICK_URL не задан — пропускаю."
+            exit 0
+          fi
+          # Первый запрос может ждать, пока Render проснётся (до минуты).
+          curl --fail-with-body --silent --show-error \
+               --retry 4 --retry-delay 20 --retry-all-errors \
+               --max-time 600 "$TICK_URL"
