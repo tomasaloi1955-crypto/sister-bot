@@ -62,10 +62,27 @@ def which_plan(prefix: str) -> InlineKeyboardMarkup:
                 for code, plan in config.PLANS.items()])
 
 
+def health_consent() -> InlineKeyboardMarkup:
+    return _kb([[B(text=texts.HEALTH_YES_BUTTON, callback_data="h:yes"),
+                 B(text=texts.HEALTH_SKIP_BUTTON, callback_data="h:skip")]])
+
+
+def health_limits(selected: set[str]) -> InlineKeyboardMarkup:
+    rows = [[B(text=("✅ " if key in selected else "▫️ ") + label, callback_data=f"h:lim:{key}")]
+            for key, label in texts.LIMITS.items()]
+    rows.append([B(text=texts.LIMITS_DONE_BUTTON, callback_data="h:limdone")])
+    return _kb(rows)
+
+
+def params_skip() -> InlineKeyboardMarkup:
+    return _kb([[B(text=texts.PARAMS_SKIP_BUTTON, callback_data="h:pskip")]])
+
+
 def settings(unsubscribed: bool) -> InlineKeyboardMarkup:
     return _kb([
         [B(text=texts.SET_SLOT_BUTTON, callback_data="set:slot")],
         [B(text=texts.SET_TZ_BUTTON, callback_data="set:tz")],
+        [B(text=texts.HEALTH_BUTTON, callback_data="h:start")],
         [B(text=texts.RESUB_BUTTON, callback_data="resub") if unsubscribed
          else B(text=texts.UNSUB_BUTTON, callback_data="unsub")],
         [B(text=texts.CLUB_BUTTON, callback_data="club")],

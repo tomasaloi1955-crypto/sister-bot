@@ -24,6 +24,19 @@ CREATE TABLE IF NOT EXISTS users (
 CREATE INDEX IF NOT EXISTS users_started_idx ON users (started_at);
 CREATE INDEX IF NOT EXISTS users_source_idx  ON users (source);
 
+-- Здоровье: ответы на вопросы перед стартом (только с согласия, видит только тренер)
+CREATE TABLE IF NOT EXISTS health (
+    tg_id        BIGINT PRIMARY KEY REFERENCES users (tg_id),
+    consent_at   TIMESTAMPTZ,                  -- согласилась ответить
+    age          TEXT,                         -- u25 | 25_35 | 35_45 | 45p
+    limits       TEXT NOT NULL DEFAULT '',     -- через запятую: back,knees,pressure,pregnant,postpartum,other,none
+    height_cm    INT,
+    weight_kg    INT,
+    step         TEXT,                         -- на каком вопросе (params — ждём рост и вес текстом)
+    onboarding   BOOLEAN NOT NULL DEFAULT false,  -- вопросы идут сразу после анкеты
+    updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 -- Тренировки: по одной на день (slot — запасное поле, обычно day)
 CREATE TABLE IF NOT EXISTS workouts (
     day        INT  NOT NULL CHECK (day BETWEEN 1 AND 60),

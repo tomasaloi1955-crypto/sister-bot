@@ -79,6 +79,28 @@ async def funnel_users() -> list[asyncpg.Record]:
            WHERE u.started_at IS NOT NULL AND NOT u.blocked AND NOT u.unsubscribed""")
 
 
+# ─────────────────────────────── здоровье ───────────────────────────────
+
+HEALTH_FIELDS = {"consent_at", "age", "limits", "height_cm", "weight_kg", "step", "onboarding"}
+
+
+async def get_health(tg_id: int) -> asyncpg.Record | None:
+    return await _p().fetchrow("SELECT * FROM health WHERE tg_id = $1", tg_id)
+
+
+async def set_health(tg_id: int, **fields) -> asyncpg.Record:
+    assert fields and set(fields) <= HEALTH_FIELDS
+    names = list(fields)
+    cols = ", ".join(names)
+    params = ", ".join(f"${i + 2}" for i in range(len(names)))
+    updates = ", ".join(f"{n} = EXCLUDED.{n}" for n in names)
+    return await _p().fetchrow(
+        f"""INSERT INTO health (tg_id, {cols}) VALUES ($1, {params})
+            ON CONFLICT (tg_id) DO UPDATE SET {updates}, updated_at = now()
+            RETURNING *""",
+        tg_id, *fields.values())
+
+
 # ─────────────────────────────── журнал отправок ───────────────────────────────
 
 async def already_sent(pairs: list[tuple[int, str]]) -> set[tuple[int, str]]:
@@ -294,5 +316,6 @@ async def export_rows() -> list[asyncpg.Record]:
         """SELECT u.tg_id, u.username, u.first_name, u.source, u.goal, u.level, u.slot, u.tz,
                   u.created_at, u.started_at, u.offer_started_at, u.paid_at,
                   u.unsubscribed, u.blocked,
-                  (SELECT count(*) FROM completions c WHERE c.tg_id = u.tg_id) AS done
-           FROM users u ORDER BY u.created_at""")
+                  (SELECT count(*) FROM completions c WHERE c.tg_id = u.tg_id) AS done,
+                  h.age, h.limits, h.height_cm, h.weight_kg
+           FROM users u LEFT JOIN health h USING (tg_id) ORDER BY u.created_at""")

@@ -18,7 +18,7 @@ from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_applicati
 from aiohttp import web
 
 from . import config, db, payments, tick
-from .handlers import admin, user
+from .handlers import admin, health, user
 
 logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -30,6 +30,7 @@ def build() -> tuple[Bot, Dispatcher]:
     bot = Bot(config.BOT_TOKEN, default=DefaultBotProperties(parse_mode="HTML"))
     dp = Dispatcher(storage=MemoryStorage())
     dp.include_router(admin.router)      # админка первой: её шаги (/upload …) важнее «свободного текста»
+    dp.include_router(health.router)
     dp.include_router(user.router)
     return bot, dp
 

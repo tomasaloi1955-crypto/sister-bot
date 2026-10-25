@@ -10,6 +10,7 @@ from aiogram.filters import Command, CommandObject, CommandStart
 from aiogram.types import CallbackQuery, LabeledPrice, Message, PreCheckoutQuery
 
 from .. import config, db, funnel, keyboards, messages, payments, texts
+from . import health
 
 log = logging.getLogger(__name__)
 router = Router(name="user")
@@ -27,18 +28,6 @@ def _source(payload: str | None) -> str | None:
     if payload.startswith("src_"):
         payload = payload[4:]
     return payload or None
-
-
-async def _send_first_day(bot: Bot, u) -> None:
-    """После анкеты: чат + первая тренировка сразу. Ключ пишем в журнал, чтобы
-    тик не прислал ту же тренировку второй раз."""
-    link = config.FREE_CHAT_LINK
-    if link:
-        await messages.say(bot, u["tg_id"], texts.FREE_CHAT.format(link=link), keyboards.free_chat())
-    slot = funnel.slots_of(u["slot"])[0]
-    # Видео дня 1 ещё нет — не шлём заглушку, тренировку пришлёт тик, когда она появится.
-    if 1 in await db.workout_days() and await db.claim_send(u["tg_id"], f"workout:1:{slot}"):
-        await messages.send_workout(bot, u["tg_id"], 1, slot)
 
 
 # ─────────────────────────────── /start и анкета ───────────────────────────────
@@ -81,8 +70,7 @@ async def survey(cb: CallbackQuery, bot: Bot) -> None:
         first_time = u["started_at"] is None
         u = await db.start_month(u["tg_id"], value)
         if first_time:
-            await cb.message.answer(texts.SURVEY_DONE.format(tz=u["tz"]))
-            await _send_first_day(bot, u)
+            await health.ask_consent(bot, u["tg_id"], onboarding=True)
         else:
             await cb.message.answer(texts.SAVED)
 
@@ -264,6 +252,8 @@ async def free_text(message: Message, bot: Bot) -> None:
     u = await db.get_user(message.from_user.id)
     if u is None or u["started_at"] is None:
         await message.answer(texts.NOT_STARTED)
+        return
+    if await health.handle_text(message, bot):
         return
     day = u["awaiting_feedback_day"]
     if day is None:
