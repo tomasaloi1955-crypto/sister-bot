@@ -63,6 +63,9 @@ def _ids(name: str) -> set[str]:
 
 
 TRIBUTE_API_KEY = _str("TRIBUTE_API_KEY")
+# Бот — диспетчер единственного вебхука Tribute: школьные (и незнакомые) уведомления
+# пересылает сюда без изменений — школа проверяет ту же подпись тем же ключом.
+SCHOOL_WEBHOOK_URL = _str("SCHOOL_WEBHOOK_URL", "https://tamra-school-web.onrender.com/api/pay/tribute")
 
 # Тарифы клуба, оплата за месяц. Ключи 3x / 6x — коды тарифов в базе и кнопках.
 # products — id товаров/подписок Tribute этого тарифа (через запятую): по ним

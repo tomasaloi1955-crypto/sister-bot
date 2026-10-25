@@ -101,6 +101,13 @@ def payment_check(pid: int) -> InlineKeyboardMarkup:
                 [B(text="❌ Оплаты нет", callback_data=f"adm:pay:0:{pid}")]])
 
 
+def product_route(key: str) -> InlineKeyboardMarkup:
+    return _kb([[B(text="🏫 Школа", callback_data=f"adm:rt:school:{key}")],
+                [B(text="🌿 Клуб 3 раза", callback_data=f"adm:rt:club3x:{key}"),
+                 B(text="🔥 Клуб каждый день", callback_data=f"adm:rt:club6x:{key}")],
+                [B(text="🚫 Ничей", callback_data=f"adm:rt:ignore:{key}")]])
+
+
 SEGMENT_NAMES = {"all": "Всем", "notpaid": "Не купили", "paid": "Купили",
                  "inactive": "Неактивные (7 дней без «Сделала»)"}
 

@@ -15,7 +15,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import BufferedInputFile, CallbackQuery, Message
 
-from .. import config, db, funnel, keyboards, messages, payments, sender, texts
+from .. import config, db, funnel, keyboards, messages, payments, sender, texts, tribute_router
 
 log = logging.getLogger(__name__)
 router = Router(name="admin")
@@ -33,6 +33,8 @@ HELP = (
     "/reviews — модерация отзывов\n"
     "/grant 123456789 3 — выдать клуб вручную (id участницы; 3 или 6 — тариф)\n"
     "/export — выгрузка участниц в CSV\n"
+    "/products — товары Tribute и куда идут их оплаты\n"
+    "/route 12345 school — направить товар (school, 3, 6, ignore или https://…)\n"
     "/tick — прогнать рассылку по расписанию прямо сейчас\n"
     "/cancel — отменить текущее действие"
 )
@@ -307,6 +309,55 @@ async def grant(message: Message, command: CommandObject, bot: Bot) -> None:
     tg_id = int(args[0])
     await db.add_payment(tg_id, "manual", None, None, None, "paid", {"by": message.from_user.id, "plan": plan})
     await payments.grant_access(bot, tg_id, plan)
+
+
+# ─────────────────────────────── товары Tribute ───────────────────────────────
+
+ROUTE_ALIASES = {"school": "school", "школа": "school", "3": "club3x", "3x": "club3x",
+                 "6": "club6x", "6x": "club6x", "ignore": "ignore", "ничей": "ignore"}
+
+
+@router.callback_query(F.data.startswith("adm:rt:"))
+async def route_button(cb: CallbackQuery) -> None:
+    _, _, route, key = cb.data.split(":", 3)
+    if route not in tribute_router.ROUTES:
+        return await cb.answer()
+    await db.set_product_route(key, route)
+    await cb.answer("Запомнила")
+    await cb.message.edit_text(cb.message.html_text + f"\n\n→ {tribute_router.route_name(route)}")
+    if route.startswith("club"):
+        n = await tribute_router.replay_for_club(cb.bot, key, route)
+        if n:
+            await cb.message.answer(f"Оплат клуба по этому товару, которые пришли раньше: {n} — обработала.")
+
+
+@router.message(Command("route"))
+async def route_cmd(message: Message, command: CommandObject) -> None:
+    args = (command.args or "").split()
+    route = None
+    if len(args) == 2:
+        route = ROUTE_ALIASES.get(args[1].lower()) or (f"url:{args[1]}" if args[1].startswith("https://") else None)
+    if route is None:
+        await message.answer("Формат: <code>/route 12345 school</code>\n"
+                             "Вместо school: 3 (клуб 3 раза), 6 (клуб каждый день), ignore или адрес https://…")
+        return
+    await db.set_product_route(args[0], route)
+    await message.answer(f"✅ Товар {html.escape(args[0])} → {html.escape(tribute_router.route_name(route))}")
+    if route.startswith("club"):
+        n = await tribute_router.replay_for_club(message.bot, args[0], route)
+        if n:
+            await message.answer(f"Оплат клуба по этому товару, которые пришли раньше: {n} — обработала.")
+
+
+@router.message(Command("products"))
+async def products(message: Message) -> None:
+    lines = [f"• {key} → {tribute_router.route_name(route)} (из настроек Render)"
+             for key, route in tribute_router.env_routes().items()]
+    for r in await db.list_products():
+        lines.append(f"• {html.escape(r['product_key'])} → {html.escape(tribute_router.route_name(r['route']))}"
+                     + (f" ({html.escape(r['info'])})" if r["info"] else ""))
+    await message.answer("<b>Товары Tribute</b>\n" + ("\n".join(lines) or "Пока ни одного уведомления не было.")
+                         + "\n\nИзменить: <code>/route 12345 school</code>")
 
 
 # ─────────────────────────────── выгрузка и тик ───────────────────────────────

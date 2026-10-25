@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 
 from aiogram import Bot
 
-from . import config, db, funnel, messages, sender
+from . import config, db, funnel, messages, sender, tribute_router
 
 log = logging.getLogger(__name__)
 _lock = asyncio.Lock()
@@ -48,6 +48,7 @@ async def run(bot: Bot, now: datetime | None = None) -> dict:
             result[status] += 1
             result[a.kind] += 1
         await alert_missing(bot, users, loaded, now)
+        result["tribute_resent"] = await tribute_router.retry_due(bot)
         log.info("Тик: участниц %s, отправлено %s", len(users), dict(result))
         return {"status": "done", "users": len(users), **result}
 

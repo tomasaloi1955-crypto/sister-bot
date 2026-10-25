@@ -101,6 +101,65 @@ async def set_health(tg_id: int, **fields) -> asyncpg.Record:
         tg_id, *fields.values())
 
 
+# ─────────────────────────────── товары Tribute и пересылка ───────────────────────────────
+
+async def product_routes(keys: list[str]) -> dict[str, str | None]:
+    rows = await _p().fetch("SELECT product_key, route FROM tribute_products WHERE product_key = ANY($1)", keys)
+    return {r["product_key"]: r["route"] for r in rows}
+
+
+async def remember_product(key: str, info: str) -> bool:
+    """Записать незнакомый товар. True — админа ещё не спрашивали (спросить сейчас)."""
+    await _p().execute(
+        "INSERT INTO tribute_products (product_key, info) VALUES ($1, $2) ON CONFLICT DO NOTHING", key, info)
+    row = await _p().fetchrow(
+        """UPDATE tribute_products SET asked_at = now()
+           WHERE product_key = $1 AND asked_at IS NULL AND route IS NULL RETURNING product_key""", key)
+    return row is not None
+
+
+async def set_product_route(key: str, route: str) -> None:
+    await _p().execute(
+        """INSERT INTO tribute_products (product_key, route) VALUES ($1, $2)
+           ON CONFLICT (product_key) DO UPDATE SET route = EXCLUDED.route""", key, route)
+
+
+async def list_products() -> list[asyncpg.Record]:
+    return await _p().fetch("SELECT * FROM tribute_products ORDER BY created_at")
+
+
+async def outbox_add(target_url: str, body: str, signature: str) -> int:
+    return await _p().fetchval(
+        "INSERT INTO tribute_outbox (target_url, body, signature) VALUES ($1, $2, $3) RETURNING id",
+        target_url, body, signature)
+
+
+async def outbox_due(limit: int = 50) -> list[asyncpg.Record]:
+    return await _p().fetch(
+        """SELECT * FROM tribute_outbox WHERE delivered_at IS NULL AND next_try_at <= now()
+           ORDER BY id LIMIT $1""", limit)
+
+
+async def outbox_recent(days: int = 14) -> list[asyncpg.Record]:
+    return await _p().fetch(
+        "SELECT * FROM tribute_outbox WHERE created_at > now() - make_interval(days => $1) ORDER BY id", days)
+
+
+async def outbox_get(oid: int) -> asyncpg.Record | None:
+    return await _p().fetchrow("SELECT * FROM tribute_outbox WHERE id = $1", oid)
+
+
+async def outbox_done(oid: int) -> None:
+    await _p().execute("UPDATE tribute_outbox SET delivered_at = now(), attempts = attempts + 1 WHERE id = $1", oid)
+
+
+async def outbox_failed(oid: int, error: str, delay_minutes: int) -> int:
+    return await _p().fetchval(
+        """UPDATE tribute_outbox SET attempts = attempts + 1, last_error = $2,
+               next_try_at = now() + make_interval(mins => $3)
+           WHERE id = $1 RETURNING attempts""", oid, error[:500], delay_minutes)
+
+
 # ─────────────────────────────── журнал отправок ───────────────────────────────
 
 async def already_sent(pairs: list[tuple[int, str]]) -> set[tuple[int, str]]:

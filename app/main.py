@@ -17,7 +17,7 @@ from aiogram.types import BotCommand
 from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
 from aiohttp import web
 
-from . import config, db, payments, tick
+from . import config, db, payments, tick, tribute_router
 from .handlers import admin, health, user
 
 logging.basicConfig(level=logging.INFO,
@@ -73,7 +73,8 @@ def make_app(bot: Bot, dp: Dispatcher) -> web.Application:
         if not payments.tribute_signature_ok(body, request.headers.get("trbt-signature", "")):
             return web.json_response({"error": "bad signature"}, status=401)
         try:
-            return web.json_response(await payments.handle_tribute(bot, body))
+            return web.json_response(await tribute_router.handle(
+                bot, body, request.headers.get("trbt-signature", "")))
         except Exception:
             log.exception("Ошибка обработки Tribute")
             return web.json_response({"error": "internal"}, status=500)

@@ -81,6 +81,30 @@ CREATE TABLE IF NOT EXISTS admin_alerts (
     sent_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- Товары Tribute и кому отдавать их уведомления (бот — диспетчер одного вебхука).
+-- route: school | club3x | club6x | ignore | url:https://…   NULL — ещё не решено (идёт в школу)
+CREATE TABLE IF NOT EXISTS tribute_products (
+    product_key TEXT PRIMARY KEY,              -- product_id или subscription_id из уведомления
+    route       TEXT,
+    info        TEXT,                          -- цена/валюта из первого уведомления — чтобы узнать товар
+    asked_at    TIMESTAMPTZ,                   -- когда спросили админа
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Очередь пересылки уведомлений Tribute (школе и др.): досылаем, пока не примут
+CREATE TABLE IF NOT EXISTS tribute_outbox (
+    id           BIGSERIAL PRIMARY KEY,
+    target_url   TEXT NOT NULL,
+    body         TEXT NOT NULL,                -- тело уведомления как пришло (подпись к нему подходит)
+    signature    TEXT NOT NULL,
+    attempts     INT  NOT NULL DEFAULT 0,
+    last_error   TEXT,
+    next_try_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    delivered_at TIMESTAMPTZ,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS tribute_outbox_pending_idx ON tribute_outbox (next_try_at) WHERE delivered_at IS NULL;
+
 -- Оплаты: tribute | stars | manual; status: paid | pending | rejected
 CREATE TABLE IF NOT EXISTS payments (
     id          BIGSERIAL PRIMARY KEY,

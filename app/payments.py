@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import hashlib
 import hmac
-import json
 import logging
 from datetime import datetime, timedelta, timezone
 
@@ -58,8 +57,7 @@ async def grant_access(bot: Bot, tg_id: int, plan: str | None, via_tribute: bool
     tribute_lets_in = via_tribute and not config.PLANS.get(plan or "", config.PLANS[config.DEFAULT_PLAN])["chat"]
     u = await db.get_user(tg_id)
     who = messages.name_of(u) + (f" @{u['username']}" if u and u["username"] else "")
-    note = "" if plan in config.PLANS else \
-        "\n⚠️ Тариф не опознан — впиши id товаров в TRIBUTE_PRODUCT_IDS_3X / _6X."
+    note = "" if plan in config.PLANS else "\n⚠️ Тариф не опознан."
     await messages.notify_admins(
         bot, f"💰 Покупка клуба: {who} (id {tg_id}), тариф: {plan_name(plan)}" + note
              + ("" if link or tribute_lets_in else "\n⚠️ Ссылки в канал нет — добавь её в канал вручную."))
@@ -79,25 +77,12 @@ def tribute_signature_ok(body: bytes, signature: str) -> bool:
 PAID_EVENTS = ("new_digital_product", "new_subscription", "renewed_subscription")
 
 
-def tribute_plan(ids: set[str]) -> str | None:
-    for code, plan in config.PLANS.items():
-        if ids & plan["products"]:
-            return code
-    return None
-
-
-async def handle_tribute(bot: Bot, body: bytes) -> dict:
-    event = json.loads(body or b"{}")
+async def handle_club(bot: Bot, event: dict, plan: str) -> dict:
+    """Уведомление Tribute по товару клуба (диспетчер — tribute_router.py)."""
     name = event.get("name", "")
     p = event.get("payload") or {}
     if name not in PAID_EVENTS:
         return {"ok": True, "ignored": name}
-    ids = {str(p[k]) for k in ("product_id", "subscription_id", "period_id") if p.get(k) is not None}
-    plan = tribute_plan(ids)
-    known = set().union(*(pl["products"] for pl in config.PLANS.values()))
-    if known and plan is None:
-        log.info("Tribute: чужой товар %s — пропускаем", ids)
-        return {"ok": True, "ignored": "другой товар"}
     tg_id = p.get("telegram_user_id")
     if not tg_id:
         log.warning("Tribute: нет telegram_user_id в %s", p)
@@ -109,7 +94,7 @@ async def handle_tribute(bot: Bot, body: bytes) -> dict:
                                p.get("currency"), "paid", {**event, "plan": plan})
     if pid is None:
         return {"ok": True, "duplicate": True}
-    log.info("Tribute: %s %s от %s, товар %s, тариф %s", name, external, tg_id, ids, plan)
+    log.info("Tribute: клуб %s %s от %s, тариф %s", name, external, tg_id, plan)
     if name == "renewed_subscription":
         # Продление: доступ у неё уже есть, новую ссылку не шлём.
         await messages.say(bot, tg_id, texts.RENEWED.format(plan=plan_name(plan)))
