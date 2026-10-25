@@ -62,7 +62,8 @@ def _ids(name: str) -> set[str]:
     return {x for x in _str(name).replace(" ", "").split(",") if x}
 
 
-TRIBUTE_API_KEY = _str("TRIBUTE_API_KEY")
+# Ключ часто вставляют с кавычками или невидимыми пробелами — убираем их.
+TRIBUTE_API_KEY = _str("TRIBUTE_API_KEY").strip().strip('"\'').strip().replace("\u200b", "").replace("\ufeff", "")
 # Бот — диспетчер единственного вебхука Tribute: школьные (и незнакомые) уведомления
 # пересылает сюда без изменений — школа проверяет ту же подпись тем же ключом.
 SCHOOL_WEBHOOK_URL = _str("SCHOOL_WEBHOOK_URL", "https://tamra-school-web.onrender.com/api/pay/tribute")
