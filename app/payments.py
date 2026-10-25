@@ -22,18 +22,26 @@ def plan_name(plan: str | None) -> str:
     return texts.PLAN_NAMES.get(plan or "", texts.PLAN_NAMES[config.DEFAULT_PLAN])
 
 
-async def send_club_link(bot: Bot, tg_id: int, plan: str | None, again: bool = False) -> str | None:
-    """Новая одноразовая ссылка в канал тарифа (действует 7 дней). None — не вышло."""
+async def send_club_link(bot: Bot, tg_id: int, plan: str | None, again: bool = False,
+                         via_tribute: bool = False) -> str | None:
+    """Новая одноразовая ссылка в канал тарифа (действует 7 дней). None — не вышло.
+
+    Канал тарифа не задан (CLUB_CHAT_ID пуст) — значит, в канал впускает сам
+    Tribute (платный канал): ссылку она получает от бота Tribute."""
     chat = config.PLANS.get(plan or "", config.PLANS[config.DEFAULT_PLAN])["chat"]
+    if not chat:
+        text = (texts.CLUB_VIA_TRIBUTE if again
+                else texts.ACCESS_VIA_TRIBUTE if via_tribute else texts.ACCESS_GRANTED_NO_LINK)
+        await messages.say(bot, tg_id, text.format(plan=plan_name(plan)))
+        return None
     link = None
-    if chat:
-        try:
-            invite = await bot.create_chat_invite_link(
-                chat_id=int(chat), name=f"club {plan} {tg_id}"[:32], member_limit=1,
-                expire_date=datetime.now(timezone.utc) + timedelta(days=7))
-            link = invite.invite_link
-        except Exception:
-            log.exception("Не удалось создать ссылку в клуб (бот админ в клубе? CLUB_CHAT_ID верный?)")
+    try:
+        invite = await bot.create_chat_invite_link(
+            chat_id=int(chat), name=f"club {plan} {tg_id}"[:32], member_limit=1,
+            expire_date=datetime.now(timezone.utc) + timedelta(days=7))
+        link = invite.invite_link
+    except Exception:
+        log.exception("Не удалось создать ссылку в клуб (бот админ в клубе? CLUB_CHAT_ID верный?)")
     if link:
         text = texts.CLUB_LINK_AGAIN if again else texts.ACCESS_GRANTED
         await messages.say(bot, tg_id, text.format(link=link, plan=plan_name(plan)))
@@ -42,18 +50,19 @@ async def send_club_link(bot: Bot, tg_id: int, plan: str | None, again: bool = F
     return link
 
 
-async def grant_access(bot: Bot, tg_id: int, plan: str | None) -> None:
+async def grant_access(bot: Bot, tg_id: int, plan: str | None, via_tribute: bool = False) -> None:
     """Покупка подтверждена: отмечаем, шлём одноразовую ссылку в клуб.
     После отметки paid_at продающие рассылки этой участнице прекращаются."""
     await db.mark_paid(tg_id)
-    link = await send_club_link(bot, tg_id, plan)
+    link = await send_club_link(bot, tg_id, plan, via_tribute=via_tribute)
+    tribute_lets_in = via_tribute and not config.PLANS.get(plan or "", config.PLANS[config.DEFAULT_PLAN])["chat"]
     u = await db.get_user(tg_id)
     who = messages.name_of(u) + (f" @{u['username']}" if u and u["username"] else "")
     note = "" if plan in config.PLANS else \
         "\n⚠️ Тариф не опознан — впиши id товаров в TRIBUTE_PRODUCT_IDS_3X / _6X."
     await messages.notify_admins(
         bot, f"💰 Покупка клуба: {who} (id {tg_id}), тариф: {plan_name(plan)}" + note
-             + ("" if link else "\n⚠️ Ссылку создать не удалось — выдай доступ вручную."))
+             + ("" if link or tribute_lets_in else "\n⚠️ Ссылки в канал нет — добавь её в канал вручную."))
 
 
 # ─────────────────────────────── Tribute ───────────────────────────────
@@ -106,7 +115,7 @@ async def handle_tribute(bot: Bot, body: bytes) -> dict:
         await messages.say(bot, tg_id, texts.RENEWED.format(plan=plan_name(plan)))
         await messages.notify_admins(bot, f"🔁 Продление клуба: id {tg_id}, тариф: {plan_name(plan)}")
         return {"ok": True, "renewed": True}
-    await grant_access(bot, tg_id, plan)
+    await grant_access(bot, tg_id, plan, via_tribute=True)
     return {"ok": True}
 
 
