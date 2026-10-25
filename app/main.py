@@ -70,8 +70,16 @@ def make_app(bot: Bot, dp: Dispatcher) -> web.Application:
 
     async def tribute_handler(request: web.Request) -> web.Response:
         body = await request.read()
-        if not payments.tribute_signature_ok(body, request.headers.get("trbt-signature", "")):
-            return web.json_response({"error": "bad signature"}, status=401)
+        signature = request.headers.get("trbt-signature", "")
+        if not payments.tribute_signature_ok(body, signature):
+            # Причина без секретов: задан ли ключ, пришла ли подпись и какого вида.
+            reason = ("TRIBUTE_API_KEY не задан в Render" if not config.TRIBUTE_API_KEY
+                      else "нет заголовка trbt-signature" if not signature
+                      else "подпись не совпала — ключ в Render не тот, что в Tribute")
+            log.warning("Tribute 401: %s. Длина ключа %s, длина подписи %s, заголовки: %s",
+                        reason, len(config.TRIBUTE_API_KEY), len(signature),
+                        ", ".join(h for h in request.headers if h.lower() not in ("authorization", "cookie")))
+            return web.json_response({"error": "bad signature", "reason": reason}, status=401)
         try:
             return web.json_response(await tribute_router.handle(
                 bot, body, request.headers.get("trbt-signature", "")))
