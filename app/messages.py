@@ -19,9 +19,9 @@ def name_of(u) -> str:
 
 
 async def say(bot: Bot, tg_id: int, text: str,
-              markup: InlineKeyboardMarkup | None = None) -> str:
+              markup: InlineKeyboardMarkup | None = None, protect: bool = False) -> str:
     return await sender.call(tg_id, lambda: bot.send_message(
-        tg_id, text, reply_markup=markup, disable_web_page_preview=True))
+        tg_id, text, reply_markup=markup, disable_web_page_preview=True, protect_content=protect))
 
 
 async def notify_admins(bot: Bot, text: str, markup: InlineKeyboardMarkup | None = None) -> None:
@@ -33,6 +33,9 @@ async def notify_admins(bot: Bot, text: str, markup: InlineKeyboardMarkup | None
 
 
 async def send_workout(bot: Bot, tg_id: int, day: int, slot: str) -> str:
+    """Тренировка с защитой Telegram (protect_content): её нельзя переслать,
+    сохранить или скопировать. Видео-ссылку (http…) защитить нельзя — поэтому
+    видео лучше загружать файлом."""
     w = await db.get_workout(day, slot)
     if w is None:
         log.warning("Нет тренировки на день %s — отправляем заглушку", day)
@@ -42,20 +45,22 @@ async def send_workout(bot: Bot, tg_id: int, day: int, slot: str) -> str:
     video = w["video"] or ""
     kb = keyboards.done(day)
     if not video:
-        return await say(bot, tg_id, body, kb)
+        return await say(bot, tg_id, body, kb, protect=True)
     if video.startswith("http"):
-        return await say(bot, tg_id, body + texts.WORKOUT_LINK.format(link=html.escape(video)), kb)
+        return await say(bot, tg_id, body + texts.WORKOUT_LINK.format(link=html.escape(video)), kb,
+                         protect=True)
 
     is_doc = video.startswith("doc:")
     file_id = video[4:] if is_doc else video
     method = bot.send_document if is_doc else bot.send_video
     if len(body) <= CAPTION_LIMIT:
-        return await sender.call(tg_id, lambda: method(tg_id, file_id, caption=body, reply_markup=kb))
+        return await sender.call(tg_id, lambda: method(tg_id, file_id, caption=body, reply_markup=kb,
+                                                       protect_content=True))
     # Длинный текст в подпись не влезает: видео отдельно, текст с кнопкой — следом.
-    result = await sender.call(tg_id, lambda: method(tg_id, file_id, caption=header))
+    result = await sender.call(tg_id, lambda: method(tg_id, file_id, caption=header, protect_content=True))
     if result != sender.OK:
         return result
-    return await say(bot, tg_id, body, kb)
+    return await say(bot, tg_id, body, kb, protect=True)
 
 
 def plan_prices() -> dict:
