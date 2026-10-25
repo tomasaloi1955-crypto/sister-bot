@@ -69,12 +69,12 @@ TRIBUTE_API_KEY = _str("TRIBUTE_API_KEY")
 # бот понимает, какой тариф оплачен. stars — цена в звёздах (0 — не принимаем).
 PLANS = {
     "3x": {"price": _str("PRICE_3X", "2 500 ₽"),
-           "link": _str("TRIBUTE_LINK_3X"),
+           "link": _str("TRIBUTE_LINK_3X", "https://web.tribute.tg/s/1aiG"),
            "products": _ids("TRIBUTE_PRODUCT_IDS_3X"),
            "stars": _int("STARS_PRICE_3X", 0),
            "chat": CLUB_CHAT_ID},
     "6x": {"price": _str("PRICE_6X", "5 000 ₽"),
-           "link": _str("TRIBUTE_LINK_6X"),
+           "link": _str("TRIBUTE_LINK_6X", "https://web.tribute.tg/s/1aiI"),
            "products": _ids("TRIBUTE_PRODUCT_IDS_6X"),
            "stars": _int("STARS_PRICE_6X", 0),
            "chat": CLUB_CHAT_ID_6X or CLUB_CHAT_ID},
