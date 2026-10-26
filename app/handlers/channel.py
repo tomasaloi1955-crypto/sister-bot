@@ -14,7 +14,7 @@ import re
 from aiogram import Bot, Router
 from aiogram.types import ChatJoinRequest, InlineKeyboardButton, InlineKeyboardMarkup
 
-from .. import config, texts
+from .. import config, messages, texts
 
 log = logging.getLogger(__name__)
 router = Router(name="channel")
@@ -41,7 +41,10 @@ async def join_request(req: ChatJoinRequest, bot: Bot) -> None:
         log.exception("Не удалось написать подавшей заявку %s", req.from_user.id)
     try:
         await req.approve()
-    except Exception:
-        log.exception("Не удалось одобрить заявку %s (бот — админ канала с правом добавлять?)",
-                      req.from_user.id)
+    except Exception as e:
+        log.exception("Не удалось одобрить заявку %s", req.from_user.id)
+        await messages.notify_admins(
+            bot, f"⚠️ Не смогла одобрить заявку {name} в «{html.escape(req.chat.title or str(req.chat.id))}»: "
+                 f"{html.escape(str(e))[:300]}\nОдобрите вручную и проверьте, что у бота в этом чате "
+                 "включено право «Пригласительные ссылки» / «Добавление участников».")
     log.info("Заявка в канал %s от %s, метка %s", req.chat.id, req.from_user.id, source)

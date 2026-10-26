@@ -30,13 +30,14 @@ async def ask_consent(bot: Bot, tg_id: int, onboarding: bool) -> None:
 async def finish_onboarding(bot: Bot, u) -> None:
     """Анкета закончена: чат + первая тренировка сразу. Ключ пишем в журнал,
     чтобы тик не прислал ту же тренировку второй раз."""
-    await messages.say(bot, u["tg_id"], texts.SURVEY_DONE.format(tz=u["tz"]))
+    ready = 1 in await db.workout_days()
+    # Видео 1 ещё нет — не обещаем «ниже»: тренировку пришлёт тик, когда она появится.
+    await messages.say(bot, u["tg_id"], (texts.SURVEY_DONE if ready else texts.SURVEY_DONE_WAIT).format(tz=u["tz"]))
     if config.FREE_CHAT_LINK:
         await messages.say(bot, u["tg_id"], texts.FREE_CHAT.format(link=config.FREE_CHAT_LINK),
                            keyboards.free_chat())
     slot = funnel.slots_of(u["slot"])[0]
-    # Видео 1 ещё нет — не шлём заглушку, тренировку пришлёт тик, когда она появится.
-    if 1 in await db.workout_days() and await db.claim_send(u["tg_id"], f"workout:1:{slot}"):
+    if ready and await db.claim_send(u["tg_id"], f"workout:1:{slot}"):
         await messages.send_workout(bot, u["tg_id"], 1, slot)
 
 
