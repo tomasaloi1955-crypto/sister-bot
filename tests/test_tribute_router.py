@@ -19,3 +19,10 @@ def test_target_url():
     assert target_url("school") == config.SCHOOL_WEBHOOK_URL
     assert target_url("url:https://x.example/hook") == "https://x.example/hook"
     assert target_url("ignore") is None and target_url("club3x") is None
+
+
+def test_join_link_source():
+    from app.handlers.channel import source_from_link
+    assert source_from_link("mama_kanal") == "mama_kanal"
+    assert source_from_link("Islam kanal #2") == "Islam_kanal_2"
+    assert source_from_link("Мамы") == "kanal" and source_from_link(None) == "kanal"
