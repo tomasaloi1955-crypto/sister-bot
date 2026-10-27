@@ -86,10 +86,14 @@ def plan(p: Person, now: datetime) -> list[Action]:
     d = funnel_day(p.started_at, now, p.tz)
     out: list[Action] = []
 
-    if d in WORKOUT_DAYS:
-        for s in slots_of(p.slot):
-            if hour >= slot_hour(s):
-                out.append(Action(f"workout:{d}:{s}", "workout", WORKOUT_DAYS[d], s))
+    # Тренировка своего дня; в день отдыха после неё — та же ещё раз под тем же
+    # ключом: если вчера она не ушла (видео не было, сервер спал), уйдёт сегодня,
+    # а если ушла — журнал sends не даст прислать второй раз.
+    for wd in (d, d - 1):
+        if wd in WORKOUT_DAYS and (wd == d or d not in WORKOUT_DAYS):
+            for s in slots_of(p.slot):
+                if hour >= slot_hour(s):
+                    out.append(Action(f"workout:{wd}:{s}", "workout", WORKOUT_DAYS[wd], s))
     if d in CHECKIN_DAYS and hour >= config.CHECKIN_HOUR:
         out.append(Action(f"checkin:{d}", "checkin", d))
     if d in NUDGE_DAYS and p.last_done_day < NUDGE_DAYS[d] and hour >= config.NUDGE_HOUR:

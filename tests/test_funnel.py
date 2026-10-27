@@ -32,8 +32,11 @@ def test_funnel_day_uses_local_date():
 def test_three_workouts_every_other_day():
     p = person(slot="evening", last_done_day=3)
     sent = {d: [a for a in funnel.plan(p, at(d, 19)) if a.kind == "workout"] for d in range(1, 10)}
-    assert {d: [a.day for a in acts] for d, acts in sent.items() if acts} == {1: [1], 3: [2], 5: [3]}
+    # В дни отдыха 2, 4, 6 — та же тренировка под тем же ключом (досылка пропущенной).
+    assert {d: [a.day for a in acts] for d, acts in sent.items() if acts} == \
+        {1: [1], 2: [1], 3: [2], 4: [2], 5: [3], 6: [3]}
     assert keys(p, at(3, 19)) == {"workout:3:evening"}
+    assert keys(p, at(2, 19)) == {"workout:1:evening"}
 
 
 def test_workout_only_after_slot_hour():
