@@ -96,6 +96,23 @@ async def done(cb: CallbackQuery) -> None:
     await cb.message.answer((texts.DONE_REPLY if new else texts.DONE_REPLY_AGAIN).format(count=total))
 
 
+@router.callback_query(F.data.startswith("rw:"))
+async def rewatch(cb: CallbackQuery, bot: Bot) -> None:
+    n = int(cb.data.split(":")[1])
+    u = await db.get_user(cb.from_user.id)
+    sent, rewatched = await db.media_rewatch_state(cb.from_user.id, n)
+    if u is None or not sent or rewatched:
+        await cb.answer(texts.REWATCH_USED, show_alert=True)
+        return
+    await cb.answer()
+    try:
+        await cb.message.delete()
+    except Exception:
+        pass
+    await messages.say(bot, cb.from_user.id, texts.REWATCH_NOTE)
+    await messages.send_workout(bot, cb.from_user.id, n, funnel.slots_of(u["slot"])[0], is_rewatch=True)
+
+
 @router.callback_query(F.data == "noop")
 async def noop(cb: CallbackQuery) -> None:
     await cb.answer()

@@ -49,6 +49,7 @@ async def run(bot: Bot, now: datetime | None = None) -> dict:
             result[a.kind] += 1
         await alert_missing(bot, users, loaded, now)
         result["tribute_resent"] = await tribute_router.retry_due(bot)
+        result["videos_removed"] = await messages.cleanup_media(bot)
         log.info("Тик: участниц %s, отправлено %s", len(users), dict(result))
         return {"status": "done", "users": len(users), **result}
 

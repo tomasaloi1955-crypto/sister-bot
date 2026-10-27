@@ -17,6 +17,10 @@ def done(day: int) -> InlineKeyboardMarkup:
     return _kb([[B(text=texts.DONE_BUTTON, callback_data=f"done:{day}")]])
 
 
+def rewatch(n: int) -> InlineKeyboardMarkup:
+    return _kb([[B(text=texts.REWATCH_BUTTON, callback_data=f"rw:{n}")]])
+
+
 def done_marked() -> InlineKeyboardMarkup:
     return _kb([[B(text=texts.DONE_ALREADY_BUTTON, callback_data="noop")]])
 

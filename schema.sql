@@ -105,6 +105,20 @@ CREATE TABLE IF NOT EXISTS tribute_outbox (
 );
 CREATE INDEX IF NOT EXISTS tribute_outbox_pending_idx ON tribute_outbox (next_try_at) WHERE delivered_at IS NULL;
 
+-- Отправленные видео тренировок: удаляем из чата через MEDIA_TTL_HOURS
+-- (Telegram даёт боту удалять свои сообщения только первые 48 часов)
+CREATE TABLE IF NOT EXISTS media_sends (
+    id           BIGSERIAL PRIMARY KEY,
+    tg_id        BIGINT NOT NULL REFERENCES users (tg_id),
+    workout      INT    NOT NULL,
+    message_ids  BIGINT[] NOT NULL,
+    is_rewatch   BOOLEAN NOT NULL DEFAULT false,   -- «Посмотреть снова» (разрешён один раз)
+    delete_after TIMESTAMPTZ NOT NULL,
+    deleted_at   TIMESTAMPTZ,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS media_sends_due_idx ON media_sends (delete_after) WHERE deleted_at IS NULL;
+
 -- Оплаты: tribute | stars | manual; status: paid | pending | rejected
 CREATE TABLE IF NOT EXISTS payments (
     id          BIGSERIAL PRIMARY KEY,

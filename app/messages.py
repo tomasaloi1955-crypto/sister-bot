@@ -32,10 +32,26 @@ async def notify_admins(bot: Bot, text: str, markup: InlineKeyboardMarkup | None
             log.exception("Не удалось уведомить админа %s", admin)
 
 
-async def send_workout(bot: Bot, tg_id: int, day: int, slot: str) -> str:
+async def send_workout(bot: Bot, tg_id: int, day: int, slot: str, track: bool = True,
+                       is_rewatch: bool = False) -> str:
     """Тренировка с защитой Telegram (protect_content): её нельзя переслать,
     сохранить или скопировать. Видео-ссылку (http…) защитить нельзя — поэтому
-    видео лучше загружать файлом."""
+    видео лучше загружать файлом.
+
+    track — участнице (не админу-предпросмотру): видео удаляется из чата через
+    MEDIA_TTL_HOURS, вместо него остаётся «🔁 Посмотреть снова» (один раз)."""
+    ids: list[int] = []
+    status = await _send_workout(bot, tg_id, day, slot, ids, track)
+    if track and status == sender.OK and ids:
+        await db.media_add(tg_id, day, ids, is_rewatch, config.MEDIA_TTL_HOURS)
+    return status
+
+
+async def _send_workout(bot: Bot, tg_id: int, day: int, slot: str, ids: list[int], track: bool) -> str:
+    async def kept(coro):
+        msg = await coro
+        ids.append(msg.message_id)
+
     w = await db.get_workout(day, slot)
     if w is None:
         log.warning("Нет тренировки на день %s — отправляем заглушку", day)
@@ -43,24 +59,48 @@ async def send_workout(bot: Bot, tg_id: int, day: int, slot: str) -> str:
     header = texts.WORKOUT_HEADER.format(day=day, total=funnel.WORKOUTS)
     body = header + (w["text"] or "")
     video = w["video"] or ""
+    if track and video:
+        body += texts.WORKOUT_EXPIRES
     kb = keyboards.done(day)
     if not video:
         return await say(bot, tg_id, body, kb, protect=True)
     if video.startswith("http"):
-        return await say(bot, tg_id, body + texts.WORKOUT_LINK.format(link=html.escape(video)), kb,
-                         protect=True)
+        return await sender.call(tg_id, lambda: kept(bot.send_message(
+            tg_id, body + texts.WORKOUT_LINK.format(link=html.escape(video)), reply_markup=kb,
+            disable_web_page_preview=True, protect_content=True)))
 
     is_doc = video.startswith("doc:")
     file_id = video[4:] if is_doc else video
     method = bot.send_document if is_doc else bot.send_video
     if len(body) <= CAPTION_LIMIT:
-        return await sender.call(tg_id, lambda: method(tg_id, file_id, caption=body, reply_markup=kb,
-                                                       protect_content=True))
+        return await sender.call(tg_id, lambda: kept(method(tg_id, file_id, caption=body, reply_markup=kb,
+                                                            protect_content=True)))
     # Длинный текст в подпись не влезает: видео отдельно, текст с кнопкой — следом.
-    result = await sender.call(tg_id, lambda: method(tg_id, file_id, caption=header, protect_content=True))
+    result = await sender.call(tg_id, lambda: kept(method(tg_id, file_id, caption=header, protect_content=True)))
     if result != sender.OK:
         return result
-    return await say(bot, tg_id, body, kb, protect=True)
+    return await sender.call(tg_id, lambda: kept(bot.send_message(
+        tg_id, body, reply_markup=kb, disable_web_page_preview=True, protect_content=True)))
+
+
+async def cleanup_media(bot: Bot) -> int:
+    """Из тика: удалить из чатов видео, у которых вышел срок. Вернёт, сколько удалено."""
+    done = 0
+    for row in await db.media_due():
+        for mid in row["message_ids"]:
+            try:
+                await bot.delete_message(row["tg_id"], mid)
+            except Exception as e:                 # уже удалено самой, или прошло 48 часов
+                log.info("Видео %s у %s не удалено: %s", mid, row["tg_id"], e)
+        await db.media_mark_deleted(row["id"])
+        done += 1
+        _, rewatched = await db.media_rewatch_state(row["tg_id"], row["workout"])
+        n = row["workout"]
+        if rewatched:
+            await say(bot, row["tg_id"], texts.VIDEO_GONE_FINAL.format(n=n, coach=config.COACH_NAME))
+        else:
+            await say(bot, row["tg_id"], texts.VIDEO_GONE.format(n=n), keyboards.rewatch(n))
+    return done
 
 
 def plan_prices() -> dict:

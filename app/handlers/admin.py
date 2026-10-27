@@ -173,7 +173,7 @@ async def _save(message: Message, state: FSMContext, bot: Bot, video: str | None
     await db.save_workout(data["day"], data["slot"], video, text.strip())
     await state.clear()
     await message.answer(f"✅ Сохранено: тренировка №{data['day']}. Вот как увидит участница:")
-    await messages.send_workout(bot, message.from_user.id, data["day"], data["slot"])
+    await messages.send_workout(bot, message.from_user.id, data["day"], data["slot"], track=False)
 
 
 @router.message(Command("workouts"))
@@ -196,7 +196,7 @@ async def show(message: Message, command: CommandObject, bot: Bot) -> None:
     if day is None:
         await message.answer("Формат: <code>/show 2</code>")
         return
-    await messages.send_workout(bot, message.from_user.id, day, slot or "day")
+    await messages.send_workout(bot, message.from_user.id, day, slot or "day", track=False)
 
 
 # ─────────────────────────────── рассылка ───────────────────────────────

@@ -160,6 +160,33 @@ async def outbox_failed(oid: int, error: str, delay_minutes: int) -> int:
            WHERE id = $1 RETURNING attempts""", oid, error[:500], delay_minutes)
 
 
+# ─────────────────────────────── видео в чатах (автоудаление) ───────────────────────────────
+
+async def media_add(tg_id: int, workout: int, message_ids: list[int], is_rewatch: bool, ttl_hours: int) -> None:
+    await _p().execute(
+        """INSERT INTO media_sends (tg_id, workout, message_ids, is_rewatch, delete_after)
+           VALUES ($1, $2, $3, $4, now() + make_interval(hours => $5))""",
+        tg_id, workout, message_ids, is_rewatch, ttl_hours)
+
+
+async def media_due(limit: int = 200) -> list[asyncpg.Record]:
+    return await _p().fetch(
+        """SELECT * FROM media_sends WHERE deleted_at IS NULL AND delete_after <= now()
+           ORDER BY id LIMIT $1""", limit)
+
+
+async def media_mark_deleted(mid: int) -> None:
+    await _p().execute("UPDATE media_sends SET deleted_at = now() WHERE id = $1", mid)
+
+
+async def media_rewatch_state(tg_id: int, workout: int) -> tuple[bool, bool]:
+    """(видео этой тренировки ей отправлялось, повтор уже был)."""
+    row = await _p().fetchrow(
+        """SELECT count(*) > 0 AS sent, bool_or(is_rewatch) AS rewatched
+           FROM media_sends WHERE tg_id = $1 AND workout = $2""", tg_id, workout)
+    return bool(row["sent"]), bool(row["rewatched"])
+
+
 # ─────────────────────────────── журнал отправок ───────────────────────────────
 
 async def already_sent(pairs: list[tuple[int, str]]) -> set[tuple[int, str]]:
