@@ -32,15 +32,18 @@ async def join_request(req: ChatJoinRequest, bot: Bot) -> None:
     me = await bot.me()
     url = f"https://t.me/{me.username}?start=src_{source}"
     name = html.escape(req.from_user.first_name or "сестра")
+    welcomed = approved = False
     try:
         await bot.send_message(
             req.user_chat_id, texts.JOIN_WELCOME.format(name=name, coach=config.COACH_NAME),
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
                 InlineKeyboardButton(text=texts.JOIN_BUTTON, url=url)]]))
+        welcomed = True
     except Exception:
         log.exception("Не удалось написать подавшей заявку %s", req.from_user.id)
     try:
         await req.approve()
+        approved = True
     except Exception as e:
         log.exception("Не удалось одобрить заявку %s", req.from_user.id)
         await messages.notify_admins(
@@ -48,3 +51,9 @@ async def join_request(req: ChatJoinRequest, bot: Bot) -> None:
                  f"{html.escape(str(e))[:300]}\nОдобрите вручную и проверьте, что у бота в этом чате "
                  "включено право «Пригласительные ссылки» / «Добавление участников».")
     log.info("Заявка в канал %s от %s, метка %s", req.chat.id, req.from_user.id, source)
+    if approved:
+        who = name + (f" @{req.from_user.username}" if req.from_user.username else "")
+        await messages.notify_admins(
+            bot, f"📥 Заявка в «{html.escape(req.chat.title or '')}»: {who} (id {req.from_user.id}), "
+                 f"ссылка «{html.escape(source)}» — ✅ одобрена"
+                 + ("" if welcomed else ", ⚠️ приветствие не доставлено"))
