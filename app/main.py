@@ -59,9 +59,24 @@ def make_app(bot: Bot, dp: Dispatcher) -> web.Application:
     async def health(_: web.Request) -> web.Response:
         return web.Response(text="ok")
 
+    background: set[asyncio.Task] = set()
+
+    async def tick_in_background() -> None:
+        try:
+            await tick.run(bot)
+        except Exception:
+            log.exception("Тик упал")
+
     async def tick_handler(request: web.Request) -> web.Response:
         if not _key_ok(request.query.get("key", "")):
             return web.json_response({"error": "forbidden"}, status=403)
+        if request.query.get("bg"):
+            # Для внешних будильников (cron-job.org): короткий ответ сразу,
+            # рассылка идёт в фоне — без таймаутов и больших ответов.
+            task = asyncio.create_task(tick_in_background())
+            background.add(task)
+            task.add_done_callback(background.discard)
+            return web.Response(text="ok")
         try:
             result = await tick.run(bot)
         except Exception:
