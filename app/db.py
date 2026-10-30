@@ -354,6 +354,25 @@ async def mark_paid(tg_id: int) -> bool:
 
 # ─────────────────────────────── админка ───────────────────────────────
 
+async def person_card(tg_id: int) -> dict | None:
+    """Всё о сестре для /who: анкета, здоровье, отметки, отправленное, оплаты."""
+    u = await get_user(tg_id)
+    if u is None:
+        return None
+    p = _p()
+    return {
+        "user": u,
+        "health": await get_health(tg_id),
+        "done": [r["day"] for r in await p.fetch(
+            "SELECT day FROM completions WHERE tg_id = $1 ORDER BY day", tg_id)],
+        "sends": await p.fetch(
+            "SELECT key, sent_at FROM sends WHERE tg_id = $1 ORDER BY sent_at DESC LIMIT 8", tg_id),
+        "payments": await p.fetch(
+            "SELECT provider, status, raw->>'plan' AS plan, created_at FROM payments "
+            "WHERE tg_id = $1 ORDER BY id DESC LIMIT 3", tg_id),
+    }
+
+
 SEGMENTS = {
     "all": "TRUE",
     "notpaid": "u.paid_at IS NULL",

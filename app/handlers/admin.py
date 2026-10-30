@@ -31,6 +31,7 @@ HELP = (
     "/show 2 — посмотреть тренировку как участница\n"
     "/broadcast — рассылка по сегменту\n"
     "/reviews — модерация отзывов\n"
+    "/who 123456789 — где сейчас сестра: анкета, тренировки, оплата\n"
     "/grant 123456789 3 — выдать клуб вручную (id участницы; 3 или 6 — тариф)\n"
     "/export — выгрузка участниц в CSV\n"
     "/products — товары Tribute и куда идут их оплаты\n"
@@ -296,6 +297,62 @@ async def payment_decision(cb: CallbackQuery, bot: Bot) -> None:
         await messages.say(bot, p["tg_id"], texts.PAYMENT_REJECTED)
         verdict = "\n\n❌ Отклонено"
     await cb.message.edit_text(cb.message.html_text + verdict)
+
+
+SEND_NAMES = {"workout": "тренировка", "checkin": "«Как ощущения?»", "nudge": "напоминание",
+              "warm_reviews": "отзывы", "warm_stats": "итоги недели", "sale": "предложение клуба",
+              "post": "письмо после недели"}
+
+
+def _when(dt, tz: str) -> str:
+    return dt.astimezone(funnel.zone(tz)).strftime("%d.%m %H:%M") if dt else "—"
+
+
+@router.message(Command("who"))
+async def who(message: Message, command: CommandObject) -> None:
+    arg = (command.args or "").strip().lstrip("@")
+    if not arg.isdigit():
+        await message.answer("Формат: <code>/who 123456789</code> (id есть в сообщении о заявке и в /export)")
+        return
+    card = await db.person_card(int(arg))
+    if card is None:
+        await message.answer("Такой сестры в боте нет: она ещё ни разу не нажимала «Начать» в боте.")
+        return
+    u, h = card["user"], card["health"]
+    tz = u["tz"]
+    lines = [f"<b>{messages.name_of(u)}</b>" + (f" @{html.escape(u['username'])}" if u["username"] else "")
+             + f" (id {u['tg_id']})",
+             f"Пришла: {_when(u['created_at'], tz)}, метка: {html.escape(u['source'] or '—')}"]
+    if u["started_at"] is None:
+        lines.append("❗ Анкету не закончила (не выбрала время тренировок)")
+    else:
+        day = funnel.funnel_day(u["started_at"], datetime.now(timezone.utc), tz)
+        lines.append(f"Анкета: {texts.GOALS.get(u['goal'], '—')}, {texts.LEVELS.get(u['level'], '—')}, "
+                     f"{texts.SLOTS.get(u['slot'], '—')}")
+        lines.append(f"Старт: {_when(u['started_at'], tz)} — сегодня у неё <b>день {day}</b>")
+    if h:
+        limits = ", ".join(texts.LIMITS.get(x, x) for x in (h["limits"] or "").split(",") if x) or "—"
+        lines.append("Здоровье: " + ("пропустила" if not h["consent_at"] else
+                     f"{texts.AGES.get(h['age'], '—')}; {limits}"
+                     + (f"; {h['height_cm']} см / {h['weight_kg']} кг" if h["height_cm"] else "")))
+    lines.append("«Сделала»: " + (", ".join(f"№{d}" for d in card["done"]) or "пока ни одной"))
+    if u["paid_at"]:
+        lines.append(f"💰 Купила клуб: {_when(u['paid_at'], tz)}")
+    for p in card["payments"]:
+        lines.append(f"Оплата: {p['provider']}, {p['status']}, тариф {p['plan'] or '—'}, {_when(p['created_at'], tz)}")
+    if u["unsubscribed"]:
+        lines.append("🔕 Отписалась от рассылки")
+    if u["blocked"]:
+        lines.append("⛔ Заблокировала бота")
+    if card["sends"]:
+        lines.append("\nПоследнее отправленное:")
+        for s in card["sends"]:
+            kind, _, rest = s["key"].partition(":")
+            day = int(rest.split(":")[0]) if rest.split(":")[0].isdigit() else 0
+            what = (f"тренировка №{funnel.WORKOUT_DAYS.get(day, '?')} (день {day})" if kind == "workout"
+                    else f"{SEND_NAMES.get(kind, kind)} (день {day})")
+            lines.append(f"• {_when(s['sent_at'], tz)} — {what}")
+    await message.answer("\n".join(lines))
 
 
 @router.message(Command("grant"))
