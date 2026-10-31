@@ -1,4 +1,4 @@
-"""Каналы клуба: вступила в канал клуба — значит, купила (впускает туда Tribute).
+"""Каналы и группы клуба: вступила — значит, купила (впускает туда Tribute).
 
 Бота добавляют администратором в канал → он спрашивает админа кнопками, чей это
 канал (клуб 3 раза / клуб каждый день / не клуб). Дальше, когда в канал клуба
@@ -31,7 +31,10 @@ def _kb(chat_id: int) -> InlineKeyboardMarkup:
                                                  for code, label in PLAN_LABELS.items()])
 
 
-@router.my_chat_member(F.chat.type == "channel")
+CLUB_CHAT_TYPES = {"channel", "group", "supergroup"}
+
+
+@router.my_chat_member(F.chat.type.in_(CLUB_CHAT_TYPES))
 async def bot_added(update: ChatMemberUpdated, bot: Bot) -> None:
     """Бота сделали администратором канала — спросить, чей канал."""
     if update.new_chat_member.status != "administrator":
@@ -41,11 +44,12 @@ async def bot_added(update: ChatMemberUpdated, bot: Bot) -> None:
     if known.get(update.chat.id):
         return
     await messages.notify_admins(
-        bot, f"📢 Бот стал администратором канала «{html.escape(update.chat.title or '')}». Что это за канал?",
+        bot, f"📢 Бот стал администратором {'канала' if update.chat.type == 'channel' else 'группы'} "
+             f"«{html.escape(update.chat.title or '')}». Это клуб?",
         _kb(update.chat.id))
 
 
-@router.message(admin_only, StateFilter(None), F.forward_origin.chat.type == "channel")
+@router.message(F.chat.type == "private", admin_only, StateFilter(None), F.forward_origin.chat.type == "channel")
 async def forwarded_from_channel(message: Message, bot: Bot) -> None:
     """Запасной путь: админ переслал боту пост из канала — спросить, чей канал."""
     chat = message.forward_origin.chat
@@ -72,7 +76,7 @@ async def channel_plan(cb: CallbackQuery) -> None:
     await cb.message.edit_text(cb.message.html_text + f"\n\n→ {PLAN_LABELS[code]}")
 
 
-@router.chat_member(F.chat.type == "channel")
+@router.chat_member(F.chat.type.in_(CLUB_CHAT_TYPES))
 async def member_changed(update: ChatMemberUpdated, bot: Bot) -> None:
     """Кто-то вступил в канал: если это канал клуба — отмечаем покупку."""
     if update.new_chat_member.status not in IN_CHANNEL or update.old_chat_member.status in IN_CHANNEL:

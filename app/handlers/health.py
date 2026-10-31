@@ -15,6 +15,7 @@ from aiogram.types import CallbackQuery, Message
 from .. import config, db, funnel, keyboards, messages, texts
 
 router = Router(name="health")
+router.message.filter(F.chat.type == "private")
 
 
 def _limits(h) -> list[str]:

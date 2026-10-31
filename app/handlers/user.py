@@ -14,6 +14,8 @@ from . import health
 
 log = logging.getLogger(__name__)
 router = Router(name="user")
+# Только личка: в группах и каналах клуба бот молчит (он там администратор и видит все сообщения).
+router.message.filter(F.chat.type == "private")
 
 
 def _now() -> datetime:

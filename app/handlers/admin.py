@@ -19,7 +19,7 @@ from .. import config, db, funnel, keyboards, messages, payments, sender, texts,
 
 log = logging.getLogger(__name__)
 router = Router(name="admin")
-router.message.filter(F.from_user.id.in_(config.ADMIN_IDS))
+router.message.filter(F.chat.type == "private", F.from_user.id.in_(config.ADMIN_IDS))
 router.callback_query.filter(F.from_user.id.in_(config.ADMIN_IDS))
 _background: set[asyncio.Task] = set()
 
