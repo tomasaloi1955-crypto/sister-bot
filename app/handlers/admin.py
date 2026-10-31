@@ -31,6 +31,7 @@ HELP = (
     "/show 2 — посмотреть тренировку как участница\n"
     "/broadcast — рассылка по сегменту\n"
     "/reviews — модерация отзывов\n"
+    "/list — последние 30 сестёр: id, день, сколько сделала, купила ли\n"
     "/who 123456789 — где сейчас сестра: анкета, тренировки, оплата\n"
     "/purge 123456789 — убрать у сестры из чата все видео тренировок сейчас\n"
     "/grant 123456789 3 — выдать клуб вручную (id участницы; 3 или 6 — тариф)\n"
@@ -307,6 +308,25 @@ SEND_NAMES = {"workout": "тренировка", "checkin": "«Как ощуще
 
 def _when(dt, tz: str) -> str:
     return dt.astimezone(funnel.zone(tz)).strftime("%d.%m %H:%M") if dt else "—"
+
+
+@router.message(Command("list"))
+async def people_list(message: Message) -> None:
+    rows = await db.recent_people()
+    if not rows:
+        await message.answer("Пока никого нет.")
+        return
+    now = datetime.now(timezone.utc)
+    lines = ["<b>Последние сёстры</b> (новые сверху). Подробно: /who id\n"]
+    for r in rows:
+        name = messages.name_of(r) + (f" @{html.escape(r['username'])}" if r["username"] else "")
+        if r["started_at"] is None:
+            where = "анкету не закончила"
+        else:
+            where = f"день {funnel.funnel_day(r['started_at'], now, r['tz'])}, сделала {r['done']}"
+        marks = ("💰" if r["paid_at"] else "") + ("⛔" if r["blocked"] else "") + ("🔕" if r["unsubscribed"] else "")
+        lines.append(f"• {name} — <code>{r['tg_id']}</code> — {where} {marks}".rstrip())
+    await message.answer("\n".join(lines))
 
 
 @router.message(Command("who"))

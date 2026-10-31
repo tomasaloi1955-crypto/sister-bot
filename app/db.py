@@ -434,6 +434,14 @@ async def stats() -> dict:
             "started": started, "done_total": done_total, "active_7d": active_7d}
 
 
+async def recent_people(limit: int = 30) -> list[asyncpg.Record]:
+    return await _p().fetch(
+        """SELECT u.tg_id, u.username, u.first_name, u.started_at, u.tz, u.paid_at, u.blocked,
+                  u.unsubscribed, u.created_at,
+                  (SELECT count(*) FROM completions c WHERE c.tg_id = u.tg_id) AS done
+           FROM users u ORDER BY u.created_at DESC LIMIT $1""", limit)
+
+
 async def export_rows() -> list[asyncpg.Record]:
     return await _p().fetch(
         """SELECT u.tg_id, u.username, u.first_name, u.source, u.goal, u.level, u.slot, u.tz,
