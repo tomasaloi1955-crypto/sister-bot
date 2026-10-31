@@ -4,9 +4,11 @@ from __future__ import annotations
 import html
 import logging
 import random
+import struct
+import zlib
 
 from aiogram import Bot
-from aiogram.types import InlineKeyboardMarkup
+from aiogram.types import BufferedInputFile, InlineKeyboardMarkup, InputMediaPhoto
 
 from . import config, db, funnel, keyboards, sender, texts
 
@@ -83,16 +85,55 @@ async def _send_workout(bot: Bot, tg_id: int, day: int, slot: str, ids: list[int
         tg_id, body, reply_markup=kb, disable_web_page_preview=True, protect_content=True)))
 
 
+def _solid_png(width: int = 640, height: int = 360, rgb: tuple = (60, 52, 72)) -> bytes:
+    """Однотонная картинка-заглушка вместо удалённого видео (без сторонних библиотек)."""
+    def chunk(kind: bytes, data: bytes) -> bytes:
+        return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data) & 0xFFFFFFFF)
+    row = b"\x00" + bytes(rgb) * width
+    return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0))
+            + chunk(b"IDAT", zlib.compress(row * height, 9)) + chunk(b"IEND", b""))
+
+
+PLACEHOLDER_PNG = _solid_png()
+
+
+async def _remove_from_chat(bot: Bot, tg_id: int, mid: int) -> bool:
+    """Убрать видео из чата. Удалить бот может только первые 48 часов — позже
+    заменяем само сообщение заглушкой (редактировать своё сообщение можно и потом).
+    True — видео в чате больше нет."""
+    try:
+        await bot.delete_message(tg_id, mid)
+        return True
+    except Exception as e:
+        if "not found" in str(e).lower():          # сама уже удалила
+            return True
+        log.info("Видео %s у %s не удалить (%s) — заменяем заглушкой", mid, tg_id, e)
+    try:
+        await bot.edit_message_media(
+            chat_id=tg_id, message_id=mid,
+            media=InputMediaPhoto(media=BufferedInputFile(PLACEHOLDER_PNG, "deleted.png"),
+                                  caption=texts.VIDEO_REPLACED))
+        return True
+    except Exception as e:
+        log.info("Заменить сообщение %s у %s как медиа не вышло: %s", mid, tg_id, e)
+    try:                                           # текстовая часть тренировки или ссылка
+        await bot.edit_message_text(texts.VIDEO_REPLACED, chat_id=tg_id, message_id=mid)
+        return True
+    except Exception as e:
+        if "not found" in str(e).lower():
+            return True
+        log.warning("Сообщение %s у %s не удалось ни удалить, ни заменить: %s", mid, tg_id, e)
+    return False
+
+
 async def cleanup_media(bot: Bot) -> int:
-    """Из тика: удалить из чатов видео, у которых вышел срок. Вернёт, сколько удалено."""
+    """Из тика: убрать из чатов видео, у которых вышел срок. Вернёт, сколько убрано."""
     done = 0
     for row in await db.media_due():
-        for mid in row["message_ids"]:
-            try:
-                await bot.delete_message(row["tg_id"], mid)
-            except Exception as e:                 # уже удалено самой, или прошло 48 часов
-                log.info("Видео %s у %s не удалено: %s", mid, row["tg_id"], e)
+        removed = [await _remove_from_chat(bot, row["tg_id"], mid) for mid in row["message_ids"]]
         await db.media_mark_deleted(row["id"])
+        if not any(removed):
+            continue                               # не обещаем «удалено», если видео осталось
         done += 1
         _, rewatched = await db.media_rewatch_state(row["tg_id"], row["workout"])
         n = row["workout"]
