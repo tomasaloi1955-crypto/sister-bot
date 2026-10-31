@@ -119,6 +119,15 @@ CREATE TABLE IF NOT EXISTS media_sends (
 );
 CREATE INDEX IF NOT EXISTS media_sends_due_idx ON media_sends (delete_after) WHERE deleted_at IS NULL;
 
+-- Каналы, где бот — администратор. plan: 3x | 6x — канал клуба этого тарифа,
+-- none — не клуб (например, рекламный). Вступила в канал клуба = купила.
+CREATE TABLE IF NOT EXISTS club_channels (
+    chat_id  BIGINT PRIMARY KEY,
+    title    TEXT,
+    plan     TEXT,
+    added_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 -- Оплаты: tribute | stars | manual; status: paid | pending | rejected
 CREATE TABLE IF NOT EXISTS payments (
     id          BIGSERIAL PRIMARY KEY,

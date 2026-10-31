@@ -63,6 +63,35 @@ async def grant_access(bot: Bot, tg_id: int, plan: str | None, via_tribute: bool
              + ("" if link or tribute_lets_in else "\n⚠️ Ссылки в канал нет — добавь её в канал вручную."))
 
 
+async def mark_club_member(bot: Bot, tg_id: int, plan: str, chat_id: int) -> None:
+    """Сестра в канале клуба (её впустил Tribute) — значит, купила. Отмечаем
+    один раз, без ссылок: доступ у неё уже есть."""
+    pid = await db.add_payment(tg_id, "channel", f"channel:{chat_id}:{tg_id}", None, None, "paid",
+                               {"plan": plan, "chat_id": chat_id})
+    first = await db.mark_paid(tg_id)
+    if pid is None and not first:
+        return
+    u = await db.get_user(tg_id)
+    who = messages.name_of(u) + (f" @{u['username']}" if u and u["username"] else "")
+    await messages.notify_admins(bot, f"💰 В канале клуба новая участница: {who} (id {tg_id}), "
+                                      f"тариф: {plan_name(plan)}. Продающие сообщения ей больше не придут.")
+
+
+async def club_plan_by_membership(bot: Bot, tg_id: int) -> str | None:
+    """Запасная проверка перед продажей: есть ли она в канале клуба."""
+    for ch in await db.club_channels():
+        if ch["plan"] not in config.PLANS:
+            continue
+        try:
+            m = await bot.get_chat_member(ch["chat_id"], tg_id)
+        except Exception:
+            continue                                   # нет в канале или бот уже не админ
+        if m.status in ("member", "restricted") and getattr(m, "is_member", True):
+            await mark_club_member(bot, tg_id, ch["plan"], ch["chat_id"])
+            return ch["plan"]
+    return None
+
+
 # ─────────────────────────────── Tribute ───────────────────────────────
 
 def tribute_signature_ok(body: bytes, signature: str) -> bool:

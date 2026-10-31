@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 
 from aiogram import Bot
 
-from . import config, db, funnel, messages, sender, tribute_router
+from . import config, db, funnel, messages, payments, sender, tribute_router
 
 log = logging.getLogger(__name__)
 _lock = asyncio.Lock()
@@ -37,6 +37,9 @@ async def run(bot: Bot, now: datetime | None = None) -> dict:
             if a.kind == "workout" and a.day not in loaded \
                     and now.astimezone(funnel.zone(u["tz"])).hour < config.MISSING_HOUR:
                 result["waiting_video"] += 1     # видео дня ещё не загружено — ждём
+                continue
+            if a.kind in ("sale", "post") and await payments.club_plan_by_membership(bot, u["tg_id"]):
+                result["found_in_club"] += 1    # уже в канале клуба — купила, не продаём
                 continue
             if not await db.claim_send(u["tg_id"], a.key):
                 continue

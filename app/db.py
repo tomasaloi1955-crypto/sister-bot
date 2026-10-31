@@ -342,6 +342,20 @@ async def paid_plan(tg_id: int) -> str | None:
            ORDER BY id DESC LIMIT 1""", tg_id)
 
 
+async def remember_channel(chat_id: int, title: str | None) -> None:
+    await _p().execute(
+        """INSERT INTO club_channels (chat_id, title) VALUES ($1, $2)
+           ON CONFLICT (chat_id) DO UPDATE SET title = EXCLUDED.title""", chat_id, title)
+
+
+async def set_channel_plan(chat_id: int, plan: str) -> None:
+    await _p().execute("UPDATE club_channels SET plan = $2 WHERE chat_id = $1", chat_id, plan)
+
+
+async def club_channels() -> list[asyncpg.Record]:
+    return await _p().fetch("SELECT * FROM club_channels ORDER BY added_at")
+
+
 async def mark_paid(tg_id: int) -> bool:
     """Отметить покупку. True — впервые. Участницы, которая ни разу не
     открывала бота, может не быть в таблице — тогда создаём её."""
