@@ -11,7 +11,8 @@ import html
 import logging
 
 from aiogram import Bot, F, Router
-from aiogram.types import CallbackQuery, ChatMemberUpdated
+from aiogram.filters import StateFilter
+from aiogram.types import CallbackQuery, ChatMemberUpdated, Message
 from aiogram.types import InlineKeyboardButton as B
 from aiogram.types import InlineKeyboardMarkup
 
@@ -42,6 +43,23 @@ async def bot_added(update: ChatMemberUpdated, bot: Bot) -> None:
     await messages.notify_admins(
         bot, f"📢 Бот стал администратором канала «{html.escape(update.chat.title or '')}». Что это за канал?",
         _kb(update.chat.id))
+
+
+@router.message(admin_only, StateFilter(None), F.forward_origin.chat.type == "channel")
+async def forwarded_from_channel(message: Message, bot: Bot) -> None:
+    """Запасной путь: админ переслал боту пост из канала — спросить, чей канал."""
+    chat = message.forward_origin.chat
+    try:
+        me = await bot.get_chat_member(chat.id, bot.id)
+        is_admin = me.status == "administrator"
+    except Exception:
+        is_admin = False
+    if not is_admin:
+        await message.answer(f"Я не администратор канала «{html.escape(chat.title or '')}». "
+                             "Добавьте меня туда администратором и перешлите пост ещё раз.")
+        return
+    await db.remember_channel(chat.id, chat.title)
+    await message.answer(f"📢 Канал «{html.escape(chat.title or '')}». Что это за канал?", reply_markup=_kb(chat.id))
 
 
 @router.callback_query(admin_only, F.data.startswith("adm:ch:"))

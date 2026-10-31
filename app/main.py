@@ -29,8 +29,8 @@ WEBHOOK_PATH = "/webhook"
 def build() -> tuple[Bot, Dispatcher]:
     bot = Bot(config.BOT_TOKEN, default=DefaultBotProperties(parse_mode="HTML"))
     dp = Dispatcher(storage=MemoryStorage())
+    dp.include_router(club_channels.router)   # пересланный пост из канала — раньше шагов админки
     dp.include_router(admin.router)      # админка первой: её шаги (/upload …) важнее «свободного текста»
-    dp.include_router(club_channels.router)
     dp.include_router(channel.router)
     dp.include_router(health.router)
     dp.include_router(user.router)
