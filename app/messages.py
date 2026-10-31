@@ -126,6 +126,25 @@ async def _remove_from_chat(bot: Bot, tg_id: int, mid: int) -> bool:
     return False
 
 
+async def purge_media(bot: Bot, tg_id: int) -> int:
+    """Админ: убрать у сестры из чата ВСЕ отправленные видео тренировок сейчас
+    (и те, что раньше не удалось удалить). Вернёт, сколько тренировок убрано."""
+    done = 0
+    for row in await db.media_of(tg_id):
+        removed = [await _remove_from_chat(bot, tg_id, mid) for mid in row["message_ids"]]
+        if row["deleted_at"] is None:
+            await db.media_mark_deleted(row["id"])
+            if any(removed):
+                _, rewatched = await db.media_rewatch_state(tg_id, row["workout"])
+                n = row["workout"]
+                if rewatched:
+                    await say(bot, tg_id, texts.VIDEO_GONE_FINAL.format(n=n, coach=config.COACH_NAME))
+                else:
+                    await say(bot, tg_id, texts.VIDEO_GONE.format(n=n), keyboards.rewatch(n))
+        done += any(removed)
+    return done
+
+
 async def cleanup_media(bot: Bot) -> int:
     """Из тика: убрать из чатов видео, у которых вышел срок. Вернёт, сколько убрано."""
     done = 0

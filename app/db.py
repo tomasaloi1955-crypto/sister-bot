@@ -175,6 +175,10 @@ async def media_due(limit: int = 200) -> list[asyncpg.Record]:
            ORDER BY id LIMIT $1""", limit)
 
 
+async def media_of(tg_id: int) -> list[asyncpg.Record]:
+    return await _p().fetch("SELECT * FROM media_sends WHERE tg_id = $1 ORDER BY id", tg_id)
+
+
 async def media_mark_deleted(mid: int) -> None:
     await _p().execute("UPDATE media_sends SET deleted_at = now() WHERE id = $1", mid)
 

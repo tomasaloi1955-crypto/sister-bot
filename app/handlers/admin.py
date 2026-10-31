@@ -32,6 +32,7 @@ HELP = (
     "/broadcast — рассылка по сегменту\n"
     "/reviews — модерация отзывов\n"
     "/who 123456789 — где сейчас сестра: анкета, тренировки, оплата\n"
+    "/purge 123456789 — убрать у сестры из чата все видео тренировок сейчас\n"
     "/grant 123456789 3 — выдать клуб вручную (id участницы; 3 или 6 — тариф)\n"
     "/export — выгрузка участниц в CSV\n"
     "/products — товары Tribute и куда идут их оплаты\n"
@@ -353,6 +354,17 @@ async def who(message: Message, command: CommandObject) -> None:
                     else f"{SEND_NAMES.get(kind, kind)} (день {day})")
             lines.append(f"• {_when(s['sent_at'], tz)} — {what}")
     await message.answer("\n".join(lines))
+
+
+@router.message(Command("purge"))
+async def purge(message: Message, command: CommandObject, bot: Bot) -> None:
+    arg = (command.args or "").strip()
+    if not arg.isdigit():
+        await message.answer("Формат: <code>/purge 123456789</code> (id сестры — в /who или в сообщениях о заявках)")
+        return
+    n = await messages.purge_media(bot, int(arg))
+    await message.answer(f"Убрано видео тренировок: {n}." if n else
+                         "Видео для удаления не нашла (бот не отправлял ей видео или они уже убраны).")
 
 
 @router.message(Command("grant"))
