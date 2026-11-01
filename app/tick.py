@@ -68,19 +68,28 @@ async def run_club(bot: Bot, now: datetime, blocked: set[int], result: Counter) 
                for k in funnel.club_keys(m["started_at"], m["tz"], m["plan"], m["slot"], now)]
     sent_before = await db.already_sent([(m["tg_id"], k) for m, k in planned])
     handled: set[int] = set()
+    repeat_now = await db.get_setting("club_repeat") == "on"     # тренер на отдыхе — повторы сразу
     for m, key in planned:
         tg = m["tg_id"]
         if (tg, key) in sent_before or tg in blocked or tg in handled:
             continue
         n = m["next_n"]
-        if n not in loaded and now.astimezone(funnel.zone(m["tz"])).hour < config.MISSING_HOUR:
+        if n not in loaded and not repeat_now \
+                and now.astimezone(funnel.zone(m["tz"])).hour < config.MISSING_HOUR:
             result["club_waiting"] += 1          # ждём, пока тренер загрузит №n
             continue
         if not await db.claim_send(tg, key):
             continue
         handled.add(tg)
-        if n not in loaded:                      # не загрузили до вечера — мягкое сообщение, номер не двигаем
-            status = await messages.say(bot, tg, texts.CLUB_MISSING)
+        if n not in loaded:                      # новой нет — повтор пройденной (номер не двигаем)
+            r = messages.next_repeat(list(loaded), n, m["repeat_n"])
+            if r is None:
+                status = await messages.say(bot, tg, texts.CLUB_MISSING)
+            else:
+                status = await messages.send_club_repeat(bot, tg, r)
+                if status == sender.OK:
+                    await db.club_set_repeat(tg, r)
+                    result["club_repeat"] += 1
         else:
             status = await messages.send_club_workout(bot, tg, n)
             if status == sender.OK:
@@ -94,6 +103,8 @@ async def run_club(bot: Bot, now: datetime, blocked: set[int], result: Counter) 
     # Что загрузить: участницы, у которых сегодня/завтра день тренировки, и их следующий номер
     today: Counter = Counter()
     tomorrow: Counter = Counter()
+    if repeat_now:
+        return today, tomorrow                   # тренер на отдыхе — не напоминаем
     members = await db.club_members_active()
     today_keys = {m["tg_id"]: [f"club:{funnel.funnel_day(m['started_at'], now, m['tz']) - 1}:{s}"
                                for s in funnel.slots_of(m["slot"])] for m in members}

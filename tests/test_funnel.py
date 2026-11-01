@@ -109,3 +109,12 @@ def test_club_rhythm_3x_and_6x():
     assert {k for _, k in six} == {f"club:{i}:day" for i in (0, 1, 2, 3, 4, 5, 7, 8, 9, 10, 11, 12)}
     assert funnel.club_keys(START, "Asia/Almaty", "6x", "day", at(1, 10)) == []        # до 11:00 — рано
     assert funnel.club_keys(START, "Asia/Almaty", "6x", "day", at(1, 22)) == []        # тихий час
+
+
+def test_club_repeat_cycle():
+    from app.messages import next_repeat
+    assert next_repeat([1, 2, 3, 4], 5, 0) == 1
+    assert next_repeat([1, 2, 3, 4], 5, 1) == 2
+    assert next_repeat([1, 2, 3, 4], 5, 4) == 1          # по кругу
+    assert next_repeat([1, 2, 7], 3, 2) == 1             # только пройденные (< следующей)
+    assert next_repeat([], 1, 0) is None

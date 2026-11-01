@@ -146,6 +146,15 @@ CREATE TABLE IF NOT EXISTS club_members (
     left_at    TIMESTAMPTZ
 );
 
+-- Режим повтора: на какой прошлой тренировке остановились повторы (0 — ещё не было)
+ALTER TABLE club_members ADD COLUMN IF NOT EXISTS repeat_n INT NOT NULL DEFAULT 0;
+
+-- Простые настройки, которые админ меняет командой (например, club_repeat = on)
+CREATE TABLE IF NOT EXISTS settings (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
+
 -- «✅ Сделала!» по тренировкам клуба
 CREATE TABLE IF NOT EXISTS club_done (
     tg_id      BIGINT NOT NULL REFERENCES users (tg_id),

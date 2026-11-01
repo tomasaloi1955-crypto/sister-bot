@@ -59,6 +59,25 @@ async def send_club_workout(bot: Bot, tg_id: int, n: int, track: bool = True, is
                           track, n, True, is_rewatch)
 
 
+async def send_club_repeat(bot: Bot, tg_id: int, n: int) -> str:
+    """Повтор прошлой тренировки клуба №n с усложнением (новой ещё нет)."""
+    w = await db.get_club_workout(n)
+    if w is None:
+        return await say(bot, tg_id, texts.CLUB_MISSING)
+    return await _deliver(bot, tg_id, w, texts.CLUB_REPEAT_HEADER.format(n=n), keyboards.club_done(n),
+                          True, n, True, False)
+
+
+def next_repeat(loaded: list[int], next_n: int, last_repeat: int) -> int | None:
+    """Какую прошлую тренировку повторить: следующую по кругу после last_repeat
+    среди уже пройденных (номера меньше next_n). None — повторять нечего."""
+    past = sorted(x for x in loaded if x < next_n)
+    if not past:
+        return None
+    later = [x for x in past if x > last_repeat]
+    return later[0] if later else past[0]
+
+
 CLUB_KEEP_HOURS = 24 * 365 * 10   # видео клуба не удаляются по сроку — только когда кончится подписка
 
 

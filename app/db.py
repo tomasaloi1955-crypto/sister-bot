@@ -308,6 +308,20 @@ async def club_members_active() -> list[asyncpg.Record]:
            WHERE m.active AND NOT u.blocked""")
 
 
+async def club_set_repeat(tg_id: int, n: int) -> None:
+    await _p().execute("UPDATE club_members SET repeat_n = $2 WHERE tg_id = $1", tg_id, n)
+
+
+async def get_setting(key: str) -> str | None:
+    return await _p().fetchval("SELECT value FROM settings WHERE key = $1", key)
+
+
+async def set_setting(key: str, value: str) -> None:
+    await _p().execute(
+        """INSERT INTO settings (key, value) VALUES ($1, $2)
+           ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value""", key, value)
+
+
 async def club_advance(tg_id: int) -> None:
     await _p().execute("UPDATE club_members SET next_n = next_n + 1 WHERE tg_id = $1", tg_id)
 

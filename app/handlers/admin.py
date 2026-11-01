@@ -30,6 +30,7 @@ HELP = (
     "/upload 2 — загрузить тренировку №2 бесплатной недели (всего 3)\n"
     "Тренировка клуба: просто пришлите видео (подпись — текст) — номер бот даст сам\n"
     "/upload_club 5 — заменить тренировку клуба №5\n"
+    "/repeat on — вы на отдыхе: бот сразу шлёт повторы пройденного; /repeat off — снова новые\n"
     "/workouts — какие тренировки загружены\n"
     "/show 2 — посмотреть тренировку как участница\n"
     "/broadcast — рассылка по сегменту\n"
@@ -226,6 +227,20 @@ async def club_video_undo(cb: CallbackQuery) -> None:
                         "Заменить: /upload_club " + str(n), show_alert=True)
 
 
+@router.message(Command("repeat"))
+async def repeat_mode(message: Message, command: CommandObject) -> None:
+    arg = (command.args or "").strip().lower()
+    if arg in ("on", "off"):
+        await db.set_setting("club_repeat", arg)
+    state = await db.get_setting("club_repeat") or "off"
+    await message.answer(
+        "🔁 Режим повтора <b>включён</b>: если новой тренировки нет, бот сразу (в обычное время сестёр) "
+        "присылает повтор пройденной с усложнением и не напоминает вам о загрузке. "
+        "Вернуться: <code>/repeat off</code>" if state == "on" else
+        "Режим повтора <b>выключен</b>: если новой тренировки нет, бот ждёт до 21:00 и напоминает вам; "
+        "не загрузили — шлёт повтор пройденной. Включить на время отдыха: <code>/repeat on</code>")
+
+
 @router.message(Command("workouts"))
 async def workouts(message: Message) -> None:
     rows = await db.list_workouts()
@@ -245,7 +260,8 @@ async def workouts(message: Message) -> None:
                          + "\n".join(lines) + "</code>\n\n<b>Клуб</b>: "
                          + (club_marks or "пока ни одной")
                          + (f"\nСамая «старшая» участница ждёт №{need}." if need else "")
-                         + f"\nЗагрузить следующую: <code>/upload_club {top + 1}</code>")
+                         + "\nСледующую — просто пришлите видео боту."
+                         + ("\n🔁 Режим повтора включён (/repeat off)." if await db.get_setting("club_repeat") == "on" else ""))
 
 
 @router.message(Command("show"))
