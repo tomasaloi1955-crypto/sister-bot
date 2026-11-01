@@ -89,6 +89,7 @@ async def member_changed(update: ChatMemberUpdated, bot: Bot) -> None:
     if now_in and not was_in:
         await payments.mark_club_member(bot, tg_id, plan, update.chat.id)
     elif was_in and update.new_chat_member.status in ("left", "kicked") and await db.club_deactivate(tg_id):
+        await messages.purge_media(bot, tg_id, club_only=True)   # видео клуба — только пока подписка
         u = await db.get_user(tg_id)
         name = messages.name_of(u)
         await messages.say(bot, tg_id, texts.CLUB_ENDED.format(name=name))

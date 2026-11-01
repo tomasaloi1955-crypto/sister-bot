@@ -59,23 +59,27 @@ async def send_club_workout(bot: Bot, tg_id: int, n: int, track: bool = True, is
                           track, n, True, is_rewatch)
 
 
+CLUB_KEEP_HOURS = 24 * 365 * 10   # видео клуба не удаляются по сроку — только когда кончится подписка
+
+
 async def _deliver(bot: Bot, tg_id: int, w, header: str, kb, track: bool, n: int, club: bool,
                    is_rewatch: bool) -> str:
     ids: list[int] = []
-    status = await _send_workout(bot, tg_id, w, header, kb, ids, track)
+    # Бесплатная неделя — исчезает через MEDIA_TTL_HOURS; клуб — лежит, пока действует подписка.
+    status = await _send_workout(bot, tg_id, w, header, kb, ids, expires=track and not club)
     if track and status == sender.OK and ids:
-        await db.media_add(tg_id, n, ids, is_rewatch, config.MEDIA_TTL_HOURS, club)
+        await db.media_add(tg_id, n, ids, is_rewatch, CLUB_KEEP_HOURS if club else config.MEDIA_TTL_HOURS, club)
     return status
 
 
-async def _send_workout(bot: Bot, tg_id: int, w, header: str, kb, ids: list[int], track: bool) -> str:
+async def _send_workout(bot: Bot, tg_id: int, w, header: str, kb, ids: list[int], expires: bool) -> str:
     async def kept(coro):
         msg = await coro
         ids.append(msg.message_id)
 
     body = header + (w["text"] or "")
     video = w["video"] or ""
-    if track and video:
+    if expires and video:
         body += texts.WORKOUT_EXPIRES
     if not video:
         return await say(bot, tg_id, body, kb, protect=True)
@@ -150,13 +154,19 @@ async def _gone_notice(bot: Bot, tg_id: int, row) -> None:
         await say(bot, tg_id, texts.VIDEO_GONE.format(n=label), keyboards.rewatch(n, club))
 
 
-async def purge_media(bot: Bot, tg_id: int) -> int:
-    """Админ: убрать у сестры из чата ВСЕ отправленные видео тренировок сейчас
-    (и те, что раньше не удалось удалить). Вернёт, сколько тренировок убрано."""
+async def purge_media(bot: Bot, tg_id: int, club_only: bool = False) -> int:
+    """Убрать у сестры из чата отправленные видео тренировок сейчас (и те, что раньше
+    не удалось удалить). club_only — только клуб: подписка кончилась, без «посмотреть
+    снова». Вернёт, сколько тренировок убрано."""
     done = 0
     for row in await db.media_of(tg_id):
+        if club_only and not row["club"]:
+            continue
         removed = [await _remove_from_chat(bot, tg_id, mid) for mid in row["message_ids"]]
-        if row["deleted_at"] is None:
+        if club_only:
+            if row["deleted_at"] is None:
+                await db.media_mark_deleted(row["id"])
+        elif row["deleted_at"] is None:
             await db.media_mark_deleted(row["id"])
             if any(removed):
                 await _gone_notice(bot, tg_id, row)
