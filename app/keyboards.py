@@ -17,8 +17,12 @@ def done(day: int) -> InlineKeyboardMarkup:
     return _kb([[B(text=texts.DONE_BUTTON, callback_data=f"done:{day}")]])
 
 
-def rewatch(n: int) -> InlineKeyboardMarkup:
-    return _kb([[B(text=texts.REWATCH_BUTTON, callback_data=f"rw:{n}")]])
+def rewatch(n: int, club: bool = False) -> InlineKeyboardMarkup:
+    return _kb([[B(text=texts.REWATCH_BUTTON, callback_data=f"rw:c:{n}" if club else f"rw:{n}")]])
+
+
+def club_done(n: int) -> InlineKeyboardMarkup:
+    return _kb([[B(text=texts.DONE_BUTTON, callback_data=f"cd:{n}")]])
 
 
 def done_marked() -> InlineKeyboardMarkup:

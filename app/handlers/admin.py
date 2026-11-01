@@ -26,7 +26,8 @@ _background: set[asyncio.Task] = set()
 HELP = (
     "<b>Админка</b>\n\n"
     "/stats — статистика и источники\n"
-    "/upload 2 — загрузить тренировку №2 (всего 3)\n"
+    "/upload 2 — загрузить тренировку №2 бесплатной недели (всего 3)\n"
+    "/upload_club 5 — загрузить тренировку клуба №5\n"
     "/workouts — какие тренировки загружены\n"
     "/show 2 — посмотреть тренировку как участница\n"
     "/broadcast — рассылка по сегменту\n"
@@ -87,6 +88,8 @@ async def stats(message: Message) -> None:
         "<b>📊 Статистика</b>",
         f"Пришли в бота: <b>{t['users']}</b> (за сутки +{t['new_today']})",
         f"Прошли анкету: <b>{t['surveyed']}</b> ({_pct(t['surveyed'], t['users'])})",
+        "Сейчас в клубе: " + (", ".join(f"{texts.PLAN_NAMES.get(r['plan'], r['plan'])}: {r['n']}"
+                                         for r in s["club"]) or "никого"),
         f"Купили клуб: <b>{t['paid']}</b> ("
         + ", ".join(f"{texts.PLAN_NAMES.get(r['plan'], r['plan'])}: {r['n']}" for r in s["by_plan"]) + ")",
         f"Конверсия анкета → покупка: <b>{_pct(t['paid'], t['surveyed'])}</b>",
@@ -128,11 +131,23 @@ async def upload(message: Message, command: CommandObject, state: FSMContext) ->
     await _ask_content(message, state, day, slot or "day")
 
 
-async def _ask_content(message: Message, state: FSMContext, day: int, slot: str) -> None:
+@router.message(Command("upload_club"))
+async def upload_club(message: Message, command: CommandObject, state: FSMContext) -> None:
+    arg = (command.args or "").strip()
+    if not arg.isdigit() or int(arg) < 1:
+        have = await db.club_workout_numbers()
+        nxt = max(have, default=0) + 1
+        await message.answer(f"Формат: <code>/upload_club {nxt}</code> — номер тренировки клуба "
+                             f"(сейчас загружено {len(have)}, следующая — №{nxt}).")
+        return
+    await _ask_content(message, state, int(arg), "day", club=True)
+
+
+async def _ask_content(message: Message, state: FSMContext, day: int, slot: str, club: bool = False) -> None:
     await state.set_state(Upload.content)
-    await state.update_data(day=day, slot=slot)
+    await state.update_data(day=day, slot=slot, club=club)
     await message.answer(
-        f"Тренировка №{day}.\n\n"
+        ("Клуб · тренировка" if club else "Тренировка") + f" №{day}.\n\n"
         "Пришли <b>видео</b> (подпись к видео = текст тренировки)\n"
         "или <b>текст</b>: если первая строка — ссылка, она станет видео.\n"
         "/cancel — отмена.")
@@ -173,8 +188,13 @@ async def upload_text(message: Message, state: FSMContext, bot: Bot) -> None:
 
 async def _save(message: Message, state: FSMContext, bot: Bot, video: str | None, text: str) -> None:
     data = await state.get_data()
-    await db.save_workout(data["day"], data["slot"], video, text.strip())
     await state.clear()
+    if data.get("club"):
+        await db.save_club_workout(data["day"], video, text.strip())
+        await message.answer(f"✅ Сохранено: клуб, тренировка №{data['day']}. Вот как увидит участница:")
+        await messages.send_club_workout(bot, message.from_user.id, data["day"], track=False)
+        return
+    await db.save_workout(data["day"], data["slot"], video, text.strip())
     await message.answer(f"✅ Сохранено: тренировка №{data['day']}. Вот как увидит участница:")
     await messages.send_workout(bot, message.from_user.id, data["day"], data["slot"], track=False)
 
@@ -189,8 +209,16 @@ async def workouts(message: Message) -> None:
     def mark(d: int) -> str:
         return "🎬" if have.get(d) else "📝" if d in have else "·"
     lines = [f"{d:>2}: {mark(d)}" for d in range(1, funnel.WORKOUTS + 1)]
-    await message.answer("<b>Тренировки</b> (🎬 видео, 📝 только текст, · нет)\n<code>"
-                         + "\n".join(lines) + "</code>")
+    club = await db.club_workout_numbers()
+    top = max(club, default=0)
+    club_marks = " ".join(f"{n}{'🎬' if club.get(n) else '📝' if n in club else '·'}" for n in range(1, top + 1))
+    members = await db.club_members_active()
+    need = max((m["next_n"] for m in members), default=0)
+    await message.answer("<b>Бесплатная неделя</b> (🎬 видео, 📝 только текст, · нет)\n<code>"
+                         + "\n".join(lines) + "</code>\n\n<b>Клуб</b>: "
+                         + (club_marks or "пока ни одной")
+                         + (f"\nСамая «старшая» участница ждёт №{need}." if need else "")
+                         + f"\nЗагрузить следующую: <code>/upload_club {top + 1}</code>")
 
 
 @router.message(Command("show"))
@@ -301,7 +329,7 @@ async def payment_decision(cb: CallbackQuery, bot: Bot) -> None:
     await cb.message.edit_text(cb.message.html_text + verdict)
 
 
-SEND_NAMES = {"workout": "тренировка", "checkin": "«Как ощущения?»", "nudge": "напоминание",
+SEND_NAMES = {"workout": "тренировка", "club": "тренировка клуба", "checkin": "«Как ощущения?»", "nudge": "напоминание",
               "warm_reviews": "отзывы", "warm_stats": "итоги недели", "sale": "предложение клуба",
               "post": "письмо после недели"}
 
@@ -357,6 +385,11 @@ async def who(message: Message, command: CommandObject) -> None:
                      f"{texts.AGES.get(h['age'], '—')}; {limits}"
                      + (f"; {h['height_cm']} см / {h['weight_kg']} кг" if h["height_cm"] else "")))
     lines.append("«Сделала»: " + (", ".join(f"№{d}" for d in card["done"]) or "пока ни одной"))
+    cm = card["club"]
+    if cm:
+        lines.append(f"Клуб: {texts.PLAN_NAMES.get(cm['plan'], cm['plan'])}, "
+                     + (f"с {_when(cm['started_at'], tz)}, следующая №{cm['next_n']}, сделала {card['club_done']}"
+                        if cm["active"] else f"вышла {_when(cm['left_at'], tz)}"))
     if u["paid_at"]:
         lines.append(f"💰 Купила клуб: {_when(u['paid_at'], tz)}")
     for p in card["payments"]:
@@ -371,6 +404,7 @@ async def who(message: Message, command: CommandObject) -> None:
             kind, _, rest = s["key"].partition(":")
             day = int(rest.split(":")[0]) if rest.split(":")[0].isdigit() else 0
             what = (f"тренировка №{funnel.WORKOUT_DAYS.get(day, '?')} (день {day})" if kind == "workout"
+                    else f"тренировка клуба (день клуба {day + 1})" if kind == "club"
                     else f"{SEND_NAMES.get(kind, kind)} (день {day})")
             lines.append(f"• {_when(s['sent_at'], tz)} — {what}")
     await message.answer("\n".join(lines))

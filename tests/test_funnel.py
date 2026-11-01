@@ -89,3 +89,23 @@ def test_workouts_received():
 
 def test_bad_timezone_falls_back():
     assert funnel.funnel_day(START, at(3, 12), "Mars/Base") == 3
+
+
+def test_club_rhythm_3x_and_6x():
+    def days_with_delivery(plan):
+        out = []
+        for d in range(1, 15):
+            ks = funnel.club_keys(START, "Asia/Almaty", plan, "day", at(d, 12))
+            if ks:
+                out.append((d, ks[0]))
+        return out
+    # 3x: дни покупки 1, 3, 5 недели (+ в дни отдыха — досылка того же ключа)
+    three = days_with_delivery("3x")
+    assert [k for _, k in three][:6] == ["club:0:day", "club:0:day", "club:2:day", "club:2:day",
+                                         "club:4:day", "club:4:day"]
+    assert {k for _, k in three} == {"club:0:day", "club:2:day", "club:4:day",
+                                     "club:7:day", "club:9:day", "club:11:day"}
+    six = days_with_delivery("6x")
+    assert {k for _, k in six} == {f"club:{i}:day" for i in (0, 1, 2, 3, 4, 5, 7, 8, 9, 10, 11, 12)}
+    assert funnel.club_keys(START, "Asia/Almaty", "6x", "day", at(1, 10)) == []        # до 11:00 — рано
+    assert funnel.club_keys(START, "Asia/Almaty", "6x", "day", at(1, 22)) == []        # тихий час

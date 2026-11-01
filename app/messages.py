@@ -42,28 +42,41 @@ async def send_workout(bot: Bot, tg_id: int, day: int, slot: str, track: bool = 
 
     track — участнице (не админу-предпросмотру): видео удаляется из чата через
     MEDIA_TTL_HOURS, вместо него остаётся «🔁 Посмотреть снова» (один раз)."""
-    ids: list[int] = []
-    status = await _send_workout(bot, tg_id, day, slot, ids, track)
-    if track and status == sender.OK and ids:
-        await db.media_add(tg_id, day, ids, is_rewatch, config.MEDIA_TTL_HOURS)
-    return status
-
-
-async def _send_workout(bot: Bot, tg_id: int, day: int, slot: str, ids: list[int], track: bool) -> str:
-    async def kept(coro):
-        msg = await coro
-        ids.append(msg.message_id)
-
     w = await db.get_workout(day, slot)
     if w is None:
         log.warning("Нет тренировки на день %s — отправляем заглушку", day)
         return await say(bot, tg_id, texts.WORKOUT_MISSING.format(day=day, total=funnel.WORKOUTS), keyboards.done(day))
     header = texts.WORKOUT_HEADER.format(day=day, total=funnel.WORKOUTS)
+    return await _deliver(bot, tg_id, w, header, keyboards.done(day), track, day, False, is_rewatch)
+
+
+async def send_club_workout(bot: Bot, tg_id: int, n: int, track: bool = True, is_rewatch: bool = False) -> str:
+    """Тренировка клуба №n — так же защищена и удаляется из чата."""
+    w = await db.get_club_workout(n)
+    if w is None:
+        return await say(bot, tg_id, texts.CLUB_MISSING)
+    return await _deliver(bot, tg_id, w, texts.CLUB_HEADER.format(n=n), keyboards.club_done(n),
+                          track, n, True, is_rewatch)
+
+
+async def _deliver(bot: Bot, tg_id: int, w, header: str, kb, track: bool, n: int, club: bool,
+                   is_rewatch: bool) -> str:
+    ids: list[int] = []
+    status = await _send_workout(bot, tg_id, w, header, kb, ids, track)
+    if track and status == sender.OK and ids:
+        await db.media_add(tg_id, n, ids, is_rewatch, config.MEDIA_TTL_HOURS, club)
+    return status
+
+
+async def _send_workout(bot: Bot, tg_id: int, w, header: str, kb, ids: list[int], track: bool) -> str:
+    async def kept(coro):
+        msg = await coro
+        ids.append(msg.message_id)
+
     body = header + (w["text"] or "")
     video = w["video"] or ""
     if track and video:
         body += texts.WORKOUT_EXPIRES
-    kb = keyboards.done(day)
     if not video:
         return await say(bot, tg_id, body, kb, protect=True)
     if video.startswith("http"):
@@ -126,6 +139,17 @@ async def _remove_from_chat(bot: Bot, tg_id: int, mid: int) -> bool:
     return False
 
 
+async def _gone_notice(bot: Bot, tg_id: int, row) -> None:
+    """«Видео удалено» + «Посмотреть снова» (если повтора ещё не было)."""
+    n, club = row["workout"], row["club"]
+    _, rewatched = await db.media_rewatch_state(tg_id, n, club)
+    label = f"клуба №{n}" if club else str(n)
+    if rewatched:
+        await say(bot, tg_id, texts.VIDEO_GONE_FINAL.format(n=label, coach=config.COACH_NAME))
+    else:
+        await say(bot, tg_id, texts.VIDEO_GONE.format(n=label), keyboards.rewatch(n, club))
+
+
 async def purge_media(bot: Bot, tg_id: int) -> int:
     """Админ: убрать у сестры из чата ВСЕ отправленные видео тренировок сейчас
     (и те, что раньше не удалось удалить). Вернёт, сколько тренировок убрано."""
@@ -135,12 +159,7 @@ async def purge_media(bot: Bot, tg_id: int) -> int:
         if row["deleted_at"] is None:
             await db.media_mark_deleted(row["id"])
             if any(removed):
-                _, rewatched = await db.media_rewatch_state(tg_id, row["workout"])
-                n = row["workout"]
-                if rewatched:
-                    await say(bot, tg_id, texts.VIDEO_GONE_FINAL.format(n=n, coach=config.COACH_NAME))
-                else:
-                    await say(bot, tg_id, texts.VIDEO_GONE.format(n=n), keyboards.rewatch(n))
+                await _gone_notice(bot, tg_id, row)
         done += any(removed)
     return done
 
@@ -154,12 +173,7 @@ async def cleanup_media(bot: Bot) -> int:
         if not any(removed):
             continue                               # не обещаем «удалено», если видео осталось
         done += 1
-        _, rewatched = await db.media_rewatch_state(row["tg_id"], row["workout"])
-        n = row["workout"]
-        if rewatched:
-            await say(bot, row["tg_id"], texts.VIDEO_GONE_FINAL.format(n=n, coach=config.COACH_NAME))
-        else:
-            await say(bot, row["tg_id"], texts.VIDEO_GONE.format(n=n), keyboards.rewatch(n))
+        await _gone_notice(bot, row["tg_id"], row)
     return done
 
 

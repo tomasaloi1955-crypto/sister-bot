@@ -109,3 +109,32 @@ def plan(p: Person, now: datetime) -> list[Action]:
         out.append(Action(f"post:{d}", "post", d))
     return out
 
+
+
+# ─────────────────────────────── клуб ───────────────────────────────
+# Неделя участницы считается от дня покупки (день 0). В эти дни недели — тренировка:
+CLUB_WEEK = {"3x": {0, 2, 4}, "6x": {0, 1, 2, 3, 4, 5}}   # 3x — через день; 6x — день 6 отдых
+
+
+def club_keys(started_at: datetime, tz: str, plan: str, slot: str | None, now: datetime) -> list[str]:
+    """Ключи рассылки клуба, положенные сейчас (для журнала sends). В день отдыха
+    после тренировочного — тот же ключ ещё раз: досылка, если вчера не ушло."""
+    local = now.astimezone(zone(tz))
+    if local.hour >= config.QUIET_HOUR:
+        return []
+    i = funnel_day(started_at, now, tz) - 1
+    days = CLUB_WEEK.get(plan, CLUB_WEEK["3x"])
+    out = []
+    for s in slots_of(slot):
+        if local.hour < slot_hour(s):
+            continue
+        if i % 7 in days:
+            out.append(f"club:{i}:{s}")
+        elif i >= 1 and (i - 1) % 7 in days:
+            out.append(f"club:{i - 1}:{s}")
+    return out
+
+
+def club_delivers_on(started_at: datetime, tz: str, plan: str, now: datetime, ahead: int = 0) -> bool:
+    i = funnel_day(started_at, now, tz) - 1 + ahead
+    return i >= 0 and i % 7 in CLUB_WEEK.get(plan, CLUB_WEEK["3x"])

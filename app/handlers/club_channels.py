@@ -78,9 +78,19 @@ async def channel_plan(cb: CallbackQuery) -> None:
 
 @router.chat_member(F.chat.type.in_(CLUB_CHAT_TYPES))
 async def member_changed(update: ChatMemberUpdated, bot: Bot) -> None:
-    """Кто-то вступил в канал: если это канал клуба — отмечаем покупку."""
-    if update.new_chat_member.status not in IN_CHANNEL or update.old_chat_member.status in IN_CHANNEL:
-        return
+    """Вступила в канал клуба — купила; вышла (Tribute убрал по окончании подписки) —
+    тренировки клуба ей больше не приходят."""
     plan = {r["chat_id"]: r["plan"] for r in await db.club_channels()}.get(update.chat.id)
-    if plan in config.PLANS:
-        await payments.mark_club_member(bot, update.new_chat_member.user.id, plan, update.chat.id)
+    if plan not in config.PLANS:
+        return
+    tg_id = update.new_chat_member.user.id
+    was_in = update.old_chat_member.status in IN_CHANNEL
+    now_in = update.new_chat_member.status in IN_CHANNEL
+    if now_in and not was_in:
+        await payments.mark_club_member(bot, tg_id, plan, update.chat.id)
+    elif was_in and update.new_chat_member.status in ("left", "kicked") and await db.club_deactivate(tg_id):
+        u = await db.get_user(tg_id)
+        name = messages.name_of(u)
+        await messages.say(bot, tg_id, texts.CLUB_ENDED.format(name=name))
+        await messages.notify_admins(bot, f"🚪 {name} (id {tg_id}) вышла из клуба "
+                                          f"«{html.escape(update.chat.title or '')}» — тренировки клуба ей остановлены.")

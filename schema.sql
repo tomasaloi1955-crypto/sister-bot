@@ -128,6 +128,35 @@ CREATE TABLE IF NOT EXISTS club_channels (
     added_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- Клуб: тренировки по номерам (своя нумерация, отдельно от бесплатной недели)
+CREATE TABLE IF NOT EXISTS club_workouts (
+    n          INT  PRIMARY KEY CHECK (n >= 1),
+    video      TEXT,
+    text       TEXT NOT NULL DEFAULT '',
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Участницы клуба: каждая проходит тренировки с №1 в своём ритме (3x — 3 в неделю, 6x — 6)
+CREATE TABLE IF NOT EXISTS club_members (
+    tg_id      BIGINT PRIMARY KEY REFERENCES users (tg_id),
+    plan       TEXT NOT NULL,
+    started_at TIMESTAMPTZ NOT NULL DEFAULT now(),   -- от этого дня считается её неделя
+    next_n     INT  NOT NULL DEFAULT 1,              -- следующая тренировка клуба
+    active     BOOLEAN NOT NULL DEFAULT true,        -- false — вышла из клуба (подписка закончилась)
+    left_at    TIMESTAMPTZ
+);
+
+-- «✅ Сделала!» по тренировкам клуба
+CREATE TABLE IF NOT EXISTS club_done (
+    tg_id      BIGINT NOT NULL REFERENCES users (tg_id),
+    n          INT    NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (tg_id, n)
+);
+
+-- Видео клуба тоже удаляются из чата; отличаем их от видео бесплатной недели
+ALTER TABLE media_sends ADD COLUMN IF NOT EXISTS club BOOLEAN NOT NULL DEFAULT false;
+
 -- Оплаты: tribute | stars | manual; status: paid | pending | rejected
 CREATE TABLE IF NOT EXISTS payments (
     id          BIGSERIAL PRIMARY KEY,

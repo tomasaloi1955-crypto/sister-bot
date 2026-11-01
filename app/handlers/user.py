@@ -98,11 +98,25 @@ async def done(cb: CallbackQuery) -> None:
     await cb.message.answer((texts.DONE_REPLY if new else texts.DONE_REPLY_AGAIN).format(count=total))
 
 
+@router.callback_query(F.data.startswith("cd:"))
+async def club_done(cb: CallbackQuery) -> None:
+    n = int(cb.data.split(":")[1])
+    new, total = await db.club_mark_done(cb.from_user.id, n)
+    await cb.answer()
+    try:
+        await cb.message.edit_reply_markup(reply_markup=keyboards.done_marked())
+    except Exception:
+        pass
+    await cb.message.answer((texts.DONE_REPLY if new else texts.DONE_REPLY_AGAIN).format(count=total))
+
+
 @router.callback_query(F.data.startswith("rw:"))
 async def rewatch(cb: CallbackQuery, bot: Bot) -> None:
-    n = int(cb.data.split(":")[1])
+    parts = cb.data.split(":")
+    club = parts[1] == "c"
+    n = int(parts[-1])
     u = await db.get_user(cb.from_user.id)
-    sent, rewatched = await db.media_rewatch_state(cb.from_user.id, n)
+    sent, rewatched = await db.media_rewatch_state(cb.from_user.id, n, club)
     if u is None or not sent or rewatched:
         await cb.answer(texts.REWATCH_USED, show_alert=True)
         return
@@ -112,7 +126,10 @@ async def rewatch(cb: CallbackQuery, bot: Bot) -> None:
     except Exception:
         pass
     await messages.say(bot, cb.from_user.id, texts.REWATCH_NOTE)
-    await messages.send_workout(bot, cb.from_user.id, n, funnel.slots_of(u["slot"])[0], is_rewatch=True)
+    if club:
+        await messages.send_club_workout(bot, cb.from_user.id, n, is_rewatch=True)
+    else:
+        await messages.send_workout(bot, cb.from_user.id, n, funnel.slots_of(u["slot"])[0], is_rewatch=True)
 
 
 @router.callback_query(F.data == "noop")

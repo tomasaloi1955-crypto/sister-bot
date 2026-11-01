@@ -49,10 +49,21 @@ async def send_club_link(bot: Bot, tg_id: int, plan: str | None, again: bool = F
     return link
 
 
+async def start_club(bot: Bot, tg_id: int, plan: str | None) -> None:
+    """Сделать участницей клуба: бот начнёт присылать ей тренировки клуба лично."""
+    plan = plan if plan in config.PLANS else config.DEFAULT_PLAN
+    if await db.club_activate(tg_id, plan):
+        u = await db.get_user(tg_id)
+        await messages.say(bot, tg_id, texts.CLUB_START.format(
+            name=messages.name_of(u), rhythm=texts.CLUB_RHYTHM[plan],
+            time=texts.SLOTS.get((u["slot"] if u else None) or "evening", texts.SLOTS["evening"])))
+
+
 async def grant_access(bot: Bot, tg_id: int, plan: str | None, via_tribute: bool = False) -> None:
     """Покупка подтверждена: отмечаем, шлём одноразовую ссылку в клуб.
     После отметки paid_at продающие рассылки этой участнице прекращаются."""
     await db.mark_paid(tg_id)
+    await start_club(bot, tg_id, plan)
     link = await send_club_link(bot, tg_id, plan, via_tribute=via_tribute)
     tribute_lets_in = via_tribute and not config.PLANS.get(plan or "", config.PLANS[config.DEFAULT_PLAN])["chat"]
     u = await db.get_user(tg_id)
@@ -69,6 +80,7 @@ async def mark_club_member(bot: Bot, tg_id: int, plan: str, chat_id: int) -> Non
     pid = await db.add_payment(tg_id, "channel", f"channel:{chat_id}:{tg_id}", None, None, "paid",
                                {"plan": plan, "chat_id": chat_id})
     first = await db.mark_paid(tg_id)
+    await start_club(bot, tg_id, plan)       # и вернувшуюся после перерыва — снова в клуб
     if pid is None and not first:
         return
     u = await db.get_user(tg_id)
@@ -126,6 +138,7 @@ async def handle_club(bot: Bot, event: dict, plan: str) -> dict:
     log.info("Tribute: клуб %s %s от %s, тариф %s", name, external, tg_id, plan)
     if name == "renewed_subscription":
         # Продление: доступ у неё уже есть, новую ссылку не шлём.
+        await start_club(bot, tg_id, plan)
         await messages.say(bot, tg_id, texts.RENEWED.format(plan=plan_name(plan)))
         await messages.notify_admins(bot, f"🔁 Продление клуба: id {tg_id}, тариф: {plan_name(plan)}")
         return {"ok": True, "renewed": True}

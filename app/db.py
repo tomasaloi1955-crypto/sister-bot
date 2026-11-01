@@ -162,11 +162,12 @@ async def outbox_failed(oid: int, error: str, delay_minutes: int) -> int:
 
 # ─────────────────────────────── видео в чатах (автоудаление) ───────────────────────────────
 
-async def media_add(tg_id: int, workout: int, message_ids: list[int], is_rewatch: bool, ttl_hours: int) -> None:
+async def media_add(tg_id: int, workout: int, message_ids: list[int], is_rewatch: bool, ttl_hours: int,
+                    club: bool = False) -> None:
     await _p().execute(
-        """INSERT INTO media_sends (tg_id, workout, message_ids, is_rewatch, delete_after)
-           VALUES ($1, $2, $3, $4, now() + make_interval(hours => $5))""",
-        tg_id, workout, message_ids, is_rewatch, ttl_hours)
+        """INSERT INTO media_sends (tg_id, workout, message_ids, is_rewatch, delete_after, club)
+           VALUES ($1, $2, $3, $4, now() + make_interval(hours => $5), $6)""",
+        tg_id, workout, message_ids, is_rewatch, ttl_hours, club)
 
 
 async def media_due(limit: int = 200) -> list[asyncpg.Record]:
@@ -183,11 +184,11 @@ async def media_mark_deleted(mid: int) -> None:
     await _p().execute("UPDATE media_sends SET deleted_at = now() WHERE id = $1", mid)
 
 
-async def media_rewatch_state(tg_id: int, workout: int) -> tuple[bool, bool]:
+async def media_rewatch_state(tg_id: int, workout: int, club: bool = False) -> tuple[bool, bool]:
     """(видео этой тренировки ей отправлялось, повтор уже был)."""
     row = await _p().fetchrow(
         """SELECT count(*) > 0 AS sent, bool_or(is_rewatch) AS rewatched
-           FROM media_sends WHERE tg_id = $1 AND workout = $2""", tg_id, workout)
+           FROM media_sends WHERE tg_id = $1 AND workout = $2 AND club = $3""", tg_id, workout, club)
     return bool(row["sent"]), bool(row["rewatched"])
 
 
@@ -246,6 +247,80 @@ async def claim_alert(key: str) -> bool:
 
 async def list_workouts() -> list[asyncpg.Record]:
     return await _p().fetch("SELECT day, slot, video IS NOT NULL AS has_video FROM workouts ORDER BY day, slot")
+
+
+# ─────────────────────────────── клуб ───────────────────────────────
+
+async def save_club_workout(n: int, video: str | None, text: str) -> None:
+    await _p().execute(
+        """INSERT INTO club_workouts (n, video, text) VALUES ($1, $2, $3)
+           ON CONFLICT (n) DO UPDATE SET video = EXCLUDED.video, text = EXCLUDED.text, updated_at = now()""",
+        n, video, text)
+
+
+async def get_club_workout(n: int) -> asyncpg.Record | None:
+    return await _p().fetchrow("SELECT * FROM club_workouts WHERE n = $1", n)
+
+
+async def club_workout_numbers() -> dict[int, bool]:
+    """№ → есть ли видео."""
+    rows = await _p().fetch("SELECT n, video IS NOT NULL AS has_video FROM club_workouts ORDER BY n")
+    return {r["n"]: r["has_video"] for r in rows}
+
+
+async def club_activate(tg_id: int, plan: str) -> bool:
+    """Купила/продлила клуб. True — только что стала (или снова стала) участницей:
+    новая начинает с №1, вернувшаяся продолжает с того номера, где остановилась."""
+    return await _p().fetchval(
+        """WITH old AS (SELECT active FROM club_members WHERE tg_id = $1)
+           INSERT INTO club_members (tg_id, plan) VALUES ($1, $2)
+           ON CONFLICT (tg_id) DO UPDATE SET plan = EXCLUDED.plan, active = true, left_at = NULL,
+               started_at = CASE WHEN club_members.active THEN club_members.started_at ELSE now() END
+           RETURNING COALESCE((SELECT NOT active FROM old), true)""", tg_id, plan)
+
+
+async def club_deactivate(tg_id: int) -> bool:
+    """Вышла из клуба. True — была активной."""
+    row = await _p().fetchrow(
+        """UPDATE club_members SET active = false, left_at = now()
+           WHERE tg_id = $1 AND active RETURNING tg_id""", tg_id)
+    return row is not None
+
+
+async def club_member(tg_id: int) -> asyncpg.Record | None:
+    return await _p().fetchrow("SELECT * FROM club_members WHERE tg_id = $1", tg_id)
+
+
+async def club_members_active() -> list[asyncpg.Record]:
+    return await _p().fetch(
+        """SELECT m.*, u.slot, u.tz, u.first_name, u.username
+           FROM club_members m JOIN users u USING (tg_id)
+           WHERE m.active AND NOT u.blocked""")
+
+
+async def club_advance(tg_id: int) -> None:
+    await _p().execute("UPDATE club_members SET next_n = next_n + 1 WHERE tg_id = $1", tg_id)
+
+
+async def club_backfill(default_plan: str) -> int:
+    """Купившие до появления клуба в боте — тоже участницы (тариф из последней оплаты)."""
+    rows = await _p().fetch(
+        """INSERT INTO club_members (tg_id, plan)
+           SELECT u.tg_id, COALESCE((SELECT p.raw->>'plan' FROM payments p WHERE p.tg_id = u.tg_id
+                                      AND p.status = 'paid' AND p.raw->>'plan' IN ('3x', '6x')
+                                      ORDER BY p.id DESC LIMIT 1), $1)
+           FROM users u WHERE u.paid_at IS NOT NULL
+             AND NOT EXISTS (SELECT 1 FROM club_members m WHERE m.tg_id = u.tg_id)
+           RETURNING tg_id""", default_plan)
+    return len(rows)
+
+
+async def club_mark_done(tg_id: int, n: int) -> tuple[bool, int]:
+    async with _p().acquire() as con:
+        new = await con.fetchrow(
+            "INSERT INTO club_done (tg_id, n) VALUES ($1, $2) ON CONFLICT DO NOTHING RETURNING n", tg_id, n)
+        total = await con.fetchval("SELECT count(*) FROM club_done WHERE tg_id = $1", tg_id)
+    return new is not None, total
 
 
 # ─────────────────────────────── «Сделала» ───────────────────────────────
@@ -385,6 +460,8 @@ async def person_card(tg_id: int) -> dict | None:
             "SELECT day FROM completions WHERE tg_id = $1 ORDER BY day", tg_id)],
         "sends": await p.fetch(
             "SELECT key, sent_at FROM sends WHERE tg_id = $1 ORDER BY sent_at DESC LIMIT 8", tg_id),
+        "club": await club_member(tg_id),
+        "club_done": await p.fetchval("SELECT count(*) FROM club_done WHERE tg_id = $1", tg_id),
         "payments": await p.fetch(
             "SELECT provider, status, raw->>'plan' AS plan, created_at FROM payments "
             "WHERE tg_id = $1 ORDER BY id DESC LIMIT 3", tg_id),
@@ -430,7 +507,8 @@ async def stats() -> dict:
     by_plan = await p.fetch(
         """SELECT COALESCE(raw->>'plan', '?') AS plan, count(DISTINCT tg_id) AS n
            FROM payments WHERE status = 'paid' GROUP BY 1 ORDER BY 1""")
-    return {"total": total, "by_source": by_source, "by_plan": by_plan, "by_day": by_day,
+    club = await p.fetch("SELECT plan, count(*) AS n FROM club_members WHERE active GROUP BY plan ORDER BY plan")
+    return {"total": total, "by_source": by_source, "by_plan": by_plan, "club": club, "by_day": by_day,
             "started": started, "done_total": done_total, "active_7d": active_7d}
 
 
