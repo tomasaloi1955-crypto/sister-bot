@@ -258,6 +258,16 @@ async def save_club_workout(n: int, video: str | None, text: str) -> None:
         n, video, text)
 
 
+async def delete_club_workout(n: int) -> bool:
+    """Отменить последнюю загрузку: только если это последний номер и его ещё никому не слали."""
+    row = await _p().fetchrow(
+        """DELETE FROM club_workouts WHERE n = $1
+             AND n = (SELECT max(n) FROM club_workouts)
+             AND NOT EXISTS (SELECT 1 FROM club_members WHERE next_n > $1)
+           RETURNING n""", n)
+    return row is not None
+
+
 async def get_club_workout(n: int) -> asyncpg.Record | None:
     return await _p().fetchrow("SELECT * FROM club_workouts WHERE n = $1", n)
 

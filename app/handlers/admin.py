@@ -10,10 +10,11 @@ import logging
 from datetime import datetime, timezone
 
 from aiogram import Bot, F, Router
-from aiogram.filters import Command, CommandObject
+from aiogram.filters import Command, CommandObject, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import BufferedInputFile, CallbackQuery, Message
+from aiogram.types import (BufferedInputFile, CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup,
+                           Message)
 
 from .. import config, db, funnel, keyboards, messages, payments, sender, texts, tribute_router
 
@@ -27,7 +28,8 @@ HELP = (
     "<b>Админка</b>\n\n"
     "/stats — статистика и источники\n"
     "/upload 2 — загрузить тренировку №2 бесплатной недели (всего 3)\n"
-    "/upload_club 5 — загрузить тренировку клуба №5\n"
+    "Тренировка клуба: просто пришлите видео (подпись — текст) — номер бот даст сам\n"
+    "/upload_club 5 — заменить тренировку клуба №5\n"
     "/workouts — какие тренировки загружены\n"
     "/show 2 — посмотреть тренировку как участница\n"
     "/broadcast — рассылка по сегменту\n"
@@ -134,11 +136,10 @@ async def upload(message: Message, command: CommandObject, state: FSMContext) ->
 @router.message(Command("upload_club"))
 async def upload_club(message: Message, command: CommandObject, state: FSMContext) -> None:
     arg = (command.args or "").strip()
+    if not arg:                                   # без номера — следующий по порядку
+        arg = str(max(await db.club_workout_numbers(), default=0) + 1)
     if not arg.isdigit() or int(arg) < 1:
-        have = await db.club_workout_numbers()
-        nxt = max(have, default=0) + 1
-        await message.answer(f"Формат: <code>/upload_club {nxt}</code> — номер тренировки клуба "
-                             f"(сейчас загружено {len(have)}, следующая — №{nxt}).")
+        await message.answer("Формат: <code>/upload_club</code> (следующий номер) или <code>/upload_club 5</code>.")
         return
     await _ask_content(message, state, int(arg), "day", club=True)
 
@@ -197,6 +198,32 @@ async def _save(message: Message, state: FSMContext, bot: Bot, video: str | None
     await db.save_workout(data["day"], data["slot"], video, text.strip())
     await message.answer(f"✅ Сохранено: тренировка №{data['day']}. Вот как увидит участница:")
     await messages.send_workout(bot, message.from_user.id, data["day"], data["slot"], track=False)
+
+
+@router.message(StateFilter(None), F.video | F.document)
+async def club_video_quick(message: Message, bot: Bot) -> None:
+    """Просто прислали видео (без команды) — это следующая тренировка клуба.
+    Номер, учёт и рассылка — на боте; кнопка «Отменить», если отправили не то."""
+    video = message.video.file_id if message.video else "doc:" + message.document.file_id
+    n = max(await db.club_workout_numbers(), default=0) + 1
+    await db.save_club_workout(n, video, (message.html_text if message.caption else "").strip())
+    await message.answer(
+        f"✅ Сохранила как <b>клуб, тренировка №{n}</b>. Сёстры получат её по очереди, каждая в свой день.\n"
+        "Вот как она выглядит:",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="↩️ Отменить", callback_data=f"adm:cundo:{n}")]]))
+    await messages.send_club_workout(bot, message.from_user.id, n, track=False)
+
+
+@router.callback_query(F.data.startswith("adm:cundo:"))
+async def club_video_undo(cb: CallbackQuery) -> None:
+    n = int(cb.data.split(":")[2])
+    if await db.delete_club_workout(n):
+        await cb.answer("Отменено")
+        await cb.message.edit_text(f"↩️ Тренировка клуба №{n} удалена.")
+    else:
+        await cb.answer("Уже нельзя: её получили сёстры или после неё загружены другие. "
+                        "Заменить: /upload_club " + str(n), show_alert=True)
 
 
 @router.message(Command("workouts"))
