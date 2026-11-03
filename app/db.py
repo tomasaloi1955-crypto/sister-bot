@@ -176,6 +176,19 @@ async def media_due(limit: int = 200) -> list[asyncpg.Record]:
            ORDER BY id LIMIT $1""", limit)
 
 
+async def media_club_kept(limit: int = 200) -> list[asyncpg.Record]:
+    """Видео клуба, отправленные раньше «навсегда» (до автоудаления клуба)."""
+    return await _p().fetch(
+        """SELECT * FROM media_sends WHERE deleted_at IS NULL AND club
+             AND delete_after > now() + interval '1 year' ORDER BY id LIMIT $1""", limit)
+
+
+async def media_set_delete_after(media_id: int, ttl_hours: int) -> None:
+    await _p().execute(
+        "UPDATE media_sends SET delete_after = created_at + make_interval(hours => $2) WHERE id = $1",
+        media_id, ttl_hours)
+
+
 async def media_of(tg_id: int) -> list[asyncpg.Record]:
     return await _p().fetch("SELECT * FROM media_sends WHERE tg_id = $1 ORDER BY id", tg_id)
 

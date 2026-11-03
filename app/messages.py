@@ -6,6 +6,7 @@ import logging
 import random
 import struct
 import zlib
+from datetime import datetime, timedelta, timezone
 
 from aiogram import Bot
 from aiogram.types import BufferedInputFile, InlineKeyboardMarkup, InputMediaPhoto
@@ -78,16 +79,15 @@ def next_repeat(loaded: list[int], next_n: int, last_repeat: int) -> int | None:
     return later[0] if later else past[0]
 
 
-CLUB_KEEP_HOURS = 24 * 365 * 10   # видео клуба не удаляются по сроку — только когда кончится подписка
 
 
 async def _deliver(bot: Bot, tg_id: int, w, header: str, kb, track: bool, n: int, club: bool,
                    is_rewatch: bool) -> str:
     ids: list[int] = []
-    # Бесплатная неделя — исчезает через MEDIA_TTL_HOURS; клуб — лежит, пока действует подписка.
-    status = await _send_workout(bot, tg_id, w, header, kb, ids, expires=track and not club)
+    # Любое видео (и бесплатной недели, и клуба) исчезает из чата через MEDIA_TTL_HOURS.
+    status = await _send_workout(bot, tg_id, w, header, kb, ids, expires=track)
     if track and status == sender.OK and ids:
-        await db.media_add(tg_id, n, ids, is_rewatch, CLUB_KEEP_HOURS if club else config.MEDIA_TTL_HOURS, club)
+        await db.media_add(tg_id, n, ids, is_rewatch, config.MEDIA_TTL_HOURS, club)
     return status
 
 
@@ -96,8 +96,10 @@ async def _send_workout(bot: Bot, tg_id: int, w, header: str, kb, ids: list[int]
         msg = await coro
         ids.append(msg.message_id)
 
-    body = header + (w["text"] or "")
     video = w["video"] or ""
+    if video:
+        header += texts.VIDEO_AMANAT             # «видео — аманат» — над каждым видео
+    body = header + (w["text"] or "")
     if expires and video:
         body += texts.WORKOUT_EXPIRES
     if not video:
@@ -196,6 +198,15 @@ async def purge_media(bot: Bot, tg_id: int, club_only: bool = False) -> int:
 async def cleanup_media(bot: Bot) -> int:
     """Из тика: убрать из чатов видео, у которых вышел срок. Вернёт, сколько убрано."""
     done = 0
+    # Видео клуба, отправленные «навсегда»: свежие получают обычный срок, а старые
+    # убираем молча — без пачки «видео удалено» за каждую прошлую тренировку.
+    for row in await db.media_club_kept():
+        if row["created_at"] > datetime.now(timezone.utc) - timedelta(hours=config.MEDIA_TTL_HOURS):
+            await db.media_set_delete_after(row["id"], config.MEDIA_TTL_HOURS)
+            continue
+        removed = [await _remove_from_chat(bot, row["tg_id"], mid) for mid in row["message_ids"]]
+        await db.media_mark_deleted(row["id"])
+        done += any(removed)
     for row in await db.media_due():
         removed = [await _remove_from_chat(bot, row["tg_id"], mid) for mid in row["message_ids"]]
         await db.media_mark_deleted(row["id"])
