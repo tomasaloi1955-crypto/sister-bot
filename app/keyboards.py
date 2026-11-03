@@ -50,6 +50,11 @@ def club(with_unsubscribe: bool = False) -> InlineKeyboardMarkup:
     return _kb(rows)
 
 
+def live(link: str) -> InlineKeyboardMarkup | None:
+    """Кнопка «Зайти на эфир» — если тренер указал ссылку на группу (/live link …)."""
+    return _kb([[B(text=texts.LIVE_BUTTON, url=link)]]) if link else None
+
+
 def pay() -> InlineKeyboardMarkup:
     """По кнопке оплаты на каждый тариф (Tribute и/или звёзды) + «Я оплатила»."""
     rows = []
@@ -111,8 +116,8 @@ def payment_check(pid: int) -> InlineKeyboardMarkup:
 
 def product_route(key: str) -> InlineKeyboardMarkup:
     return _kb([[B(text="🏫 Школа", callback_data=f"adm:rt:school:{key}")],
-                [B(text="🌿 Клуб 3 раза", callback_data=f"adm:rt:club3x:{key}"),
-                 B(text="🔥 Клуб каждый день", callback_data=f"adm:rt:club6x:{key}")],
+                [B(text="🌿 Клуб «Онлайн»", callback_data=f"adm:rt:club3x:{key}"),
+                 B(text="🔥 Онлайн + записи", callback_data=f"adm:rt:club6x:{key}")],
                 [B(text="🚫 Ничей", callback_data=f"adm:rt:ignore:{key}")]])
 
 

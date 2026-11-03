@@ -51,6 +51,11 @@ MISSING_HOUR = _int("MISSING_HOUR", 21)
 # Напоминания вам «загрузи тренировку на завтра» (по DEFAULT_TZ).
 ADMIN_MORNING_HOUR = _int("ADMIN_MORNING_HOUR", 9)
 ADMIN_EVENING_HOUR = _int("ADMIN_EVENING_HOUR", 20)
+# Живые эфиры клуба — значения по умолчанию; меняются командой /live прямо в боте.
+LIVE_DAYS = _str("LIVE_DAYS", "пн ср пт")
+LIVE_TIME = _str("LIVE_TIME", "19:00")         # по DEFAULT_TZ (часовой пояс тренера)
+LIVE_REMIND_HOUR = _int("LIVE_REMIND_HOUR", 10)  # утреннее «сегодня эфир»
+LIVE_LINK = _str("LIVE_LINK")                  # ссылка на группу клуба, где идёт эфир
 
 FREE_CHAT_LINK = _str("FREE_CHAT_LINK")      # закрытый женский чат бесплатной недели
 CLUB_CHAT_ID = _str("CLUB_CHAT_ID")          # id платного канала/чата клуба (-100…)

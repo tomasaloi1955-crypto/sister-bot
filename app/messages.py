@@ -210,15 +210,50 @@ def plan_prices() -> dict:
     return {f"price_{code}": plan["price"] for code, plan in config.PLANS.items()}
 
 
+# ─────────────────────────── живые эфиры клуба ───────────────────────────
+
+async def live_schedule() -> funnel.Live:
+    """Расписание эфиров: из /live (таблица settings), иначе из переменных LIVE_*."""
+    days = funnel.parse_days(await db.get_setting("live_days") or config.LIVE_DAYS) or funnel.Live().days
+    hour, minute = funnel.parse_time(await db.get_setting("live_time") or config.LIVE_TIME) or (19, 0)
+    return funnel.Live(days=days, hour=hour, minute=minute,
+                       on=(await db.get_setting("live_on") or "on") == "on",
+                       skip=frozenset((await db.get_setting("live_skip") or "").split()))
+
+
+async def live_link() -> str:
+    link = await db.get_setting("live_link")
+    return config.LIVE_LINK if link is None else link
+
+
+def live_text(live: funnel.Live) -> str:
+    """«Пн, Ср, Пт в 19:00 (по Алматы)» — для текстов продажи и приветствия."""
+    return texts.LIVE_WHEN.format(days=live.days_text, time=live.time)
+
+
+def local_time(start, tz: str | None) -> str:
+    return start.astimezone(funnel.zone(tz or config.DEFAULT_TZ)).strftime("%H:%M")
+
+
+async def offer_vars() -> dict:
+    return {**plan_prices(), "live": live_text(await live_schedule())}
+
+
+async def send_live_reminder(bot: Bot, m, kind: str, start, link: str) -> str:
+    text = texts.LIVE_SOON if kind == "soon" else texts.LIVE_TODAY
+    return await say(bot, m["tg_id"], text.format(name=name_of(m), time=local_time(start, m["tz"])),
+                     keyboards.live(link))
+
+
 async def send_club_offer(bot: Bot, u) -> str:
     """Карточка клуба: два тарифа и кнопки оплаты."""
-    return await say(bot, u["tg_id"], texts.CLUB_OFFER.format(**plan_prices()), keyboards.pay())
+    return await say(bot, u["tg_id"], texts.CLUB_OFFER.format(**await offer_vars()), keyboards.pay())
 
 
 async def send_action(bot: Bot, u, a: funnel.Action) -> str:
     """Отправить одно плановое сообщение из funnel.plan()."""
     tg_id, name = u["tg_id"], name_of(u)
-    prices = plan_prices()
+    prices = await offer_vars() if a.kind in ("sale", "post") else {}
 
     if a.kind == "workout":
         return await send_workout(bot, tg_id, a.day, a.slot)

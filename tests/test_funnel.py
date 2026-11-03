@@ -91,24 +91,57 @@ def test_bad_timezone_falls_back():
     assert funnel.funnel_day(START, at(3, 12), "Mars/Base") == 3
 
 
-def test_club_rhythm_3x_and_6x():
-    def days_with_delivery(plan):
-        out = []
-        for d in range(1, 15):
-            ks = funnel.club_keys(START, "Asia/Almaty", plan, "day", at(d, 12))
-            if ks:
-                out.append((d, ks[0]))
-        return out
-    # 3x: дни покупки 1, 3, 5 недели (+ в дни отдыха — досылка того же ключа)
-    three = days_with_delivery("3x")
-    assert [k for _, k in three][:6] == ["club:0:day", "club:0:day", "club:2:day", "club:2:day",
-                                         "club:4:day", "club:4:day"]
-    assert {k for _, k in three} == {"club:0:day", "club:2:day", "club:4:day",
-                                     "club:7:day", "club:9:day", "club:11:day"}
-    six = days_with_delivery("6x")
-    assert {k for _, k in six} == {f"club:{i}:day" for i in (0, 1, 2, 3, 4, 5, 7, 8, 9, 10, 11, 12)}
+def test_club_records_only_6x_on_days_without_live():
+    # 1 октября 2026 — четверг. Эфиры Пн/Ср/Пт → записи Вт/Чт/Сб, Вс — отдых.
+    assert START.weekday() == 3
+    def deliveries(plan, live_days=frozenset({0, 2, 4})):
+        return [(d, funnel.club_keys(START, "Asia/Almaty", plan, "day", at(d, 12), live_days))
+                for d in range(1, 15)]
+    assert all(ks == [] for _, ks in deliveries("3x"))              # 3x — только эфиры
+    six = deliveries("6x")
+    # Чт(0) Пт-досылка(0) Сб(2) Вс-досылка(2) Пн — нет (вчера отдых) Вт(5) Ср-досылка(5) …
+    assert [ks for _, ks in six][:7] == [["club:0:day"], ["club:0:day"], ["club:2:day"], ["club:2:day"],
+                                         [], ["club:5:day"], ["club:5:day"]]
+    assert {k for _, ks in six for k in ks} == {f"club:{i}:day" for i in (0, 2, 5, 7, 9, 12)}
     assert funnel.club_keys(START, "Asia/Almaty", "6x", "day", at(1, 10)) == []        # до 11:00 — рано
     assert funnel.club_keys(START, "Asia/Almaty", "6x", "day", at(1, 22)) == []        # тихий час
+    assert funnel.club_delivers_on(START, "Asia/Almaty", "6x", at(1, 12))              # Чт — запись
+    assert not funnel.club_delivers_on(START, "Asia/Almaty", "6x", at(1, 12), ahead=1)  # Пт — эфир
+    assert not funnel.club_delivers_on(START, "Asia/Almaty", "3x", at(1, 12))
+
+
+def test_record_days():
+    assert funnel.record_days({0, 2, 4}) == {1, 3, 5}
+    assert funnel.record_days({1, 3, 5}) == {0, 2, 4}
+    assert funnel.record_days({0, 2, 6}) == {1, 3, 4, 5}
+
+
+def test_parse_live():
+    assert funnel.parse_days("пн ср пт 19:00") == {0, 2, 4}
+    assert funnel.parse_days("Вторник, четверг, суббота") == {1, 3, 5}
+    assert funnel.parse_days("19:00") is None
+    assert funnel.parse_time("19:00") == (19, 0)
+    assert funnel.parse_time("9.30") == (9, 30)
+    assert funnel.parse_time("25:00") is None
+    assert funnel.parse_time("пн") is None
+
+
+def test_live_reminders():
+    live = funnel.Live(days=frozenset({0, 2, 4}), hour=19)
+    fri = 2                                                  # день 2 = пятница 2 октября
+    assert funnel.live_reminder(live, at(fri, 9)) is None    # рано
+    key, kind, start = funnel.live_reminder(live, at(fri, 10))
+    assert (key, kind) == ("live:2026-10-02:day", "day")
+    assert funnel.live_reminder(live, at(fri, 18))[1] == "soon"
+    assert funnel.live_reminder(live, at(fri, 19, 10))[1] == "soon"
+    assert funnel.live_reminder(live, at(fri, 19, 30)) is None   # эфир идёт
+    assert funnel.live_reminder(live, at(1, 18)) is None         # четверг — эфира нет
+    off = funnel.Live(days=live.days, hour=19, on=False)
+    assert funnel.live_reminder(off, at(fri, 18)) is None
+    skipped = funnel.Live(days=live.days, hour=19, skip=frozenset({"2026-10-02"}))
+    assert funnel.live_reminder(skipped, at(fri, 18)) is None
+    assert funnel.next_live(skipped, at(fri, 12)).day == 5       # следующий — пн 5 октября
+    assert funnel.next_live(live, at(fri, 12)).day == 2
 
 
 def test_club_repeat_cycle():

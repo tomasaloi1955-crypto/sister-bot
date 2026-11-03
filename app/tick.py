@@ -1,4 +1,4 @@
-"""Тик: GitHub Actions раз в 15 минут дёргает /tick, бот решает, кому что слать."""
+"""Тик: будильник раз в час дёргает /tick, бот решает, кому что слать."""
 from __future__ import annotations
 
 import asyncio
@@ -50,7 +50,9 @@ async def run(bot: Bot, now: datetime | None = None) -> dict:
                 blocked.add(u["tg_id"])
             result[status] += 1
             result[a.kind] += 1
-        club_today, club_tomorrow = await run_club(bot, now, blocked, result)
+        live = await messages.live_schedule()
+        await run_live(bot, now, live, blocked, result)
+        club_today, club_tomorrow = await run_club(bot, now, live.days, blocked, result)
         await alert_missing(bot, users, loaded, now, club_today, club_tomorrow)
         result["tribute_resent"] = await tribute_router.retry_due(bot)
         result["videos_removed"] = await messages.cleanup_media(bot)
@@ -58,14 +60,36 @@ async def run(bot: Bot, now: datetime | None = None) -> dict:
         return {"status": "done", "users": len(users), **result}
 
 
-async def run_club(bot: Bot, now: datetime, blocked: set[int], result: Counter) -> tuple[Counter, Counter]:
-    """Тренировки клуба: каждой участнице — следующая по номеру, в её дни и час.
+async def run_live(bot: Bot, now: datetime, live: funnel.Live, blocked: set[int], result: Counter) -> None:
+    """Напоминания об эфире всем участницам клуба: утром и за час до начала."""
+    r = funnel.live_reminder(live, now)
+    if r is None:
+        return
+    key, kind, start = r
+    members = await db.club_members_active()
+    sent_before = await db.already_sent([(m["tg_id"], key) for m in members])
+    link = await messages.live_link()
+    for m in members:
+        tg = m["tg_id"]
+        if (tg, key) in sent_before or tg in blocked or not await db.claim_send(tg, key):
+            continue
+        status = await messages.send_live_reminder(bot, m, kind, start, link)
+        if status == sender.FAILED:
+            await db.release_send(tg, key)
+        elif status == sender.BLOCKED:
+            blocked.add(tg)
+        result[f"live_{kind}"] += 1
+
+
+async def run_club(bot: Bot, now: datetime, live_days, blocked: set[int],
+                   result: Counter) -> tuple[Counter, Counter]:
+    """Тренировки клуба в записи (тариф 6x): каждой — следующая по номеру, в дни без эфира.
     Вернёт, какие номера клуба (ещё не загруженные) нужны сегодня и завтра."""
     await db.club_backfill(config.DEFAULT_PLAN)
     members = await db.club_members_active()
     loaded = await db.club_workout_numbers()
     planned = [(m, k) for m in members
-               for k in funnel.club_keys(m["started_at"], m["tz"], m["plan"], m["slot"], now)]
+               for k in funnel.club_keys(m["started_at"], m["tz"], m["plan"], m["slot"], now, live_days)]
     sent_before = await db.already_sent([(m["tg_id"], k) for m, k in planned])
     handled: set[int] = set()
     repeat_now = await db.get_setting("club_repeat") == "on"     # тренер на отдыхе — повторы сразу
@@ -110,12 +134,12 @@ async def run_club(bot: Bot, now: datetime, blocked: set[int], result: Counter) 
                                for s in funnel.slots_of(m["slot"])] for m in members}
     sent_today = await db.already_sent([(tg, k) for tg, ks in today_keys.items() for k in ks])
     for m in members:
-        pending_today = (funnel.club_delivers_on(m["started_at"], m["tz"], m["plan"], now)
+        pending_today = (funnel.club_delivers_on(m["started_at"], m["tz"], m["plan"], now, live_days=live_days)
                          and not any((m["tg_id"], k) in sent_today for k in today_keys[m["tg_id"]]))
         if pending_today and m["next_n"] not in loaded:
             today[m["next_n"]] += 1
         n_next = m["next_n"] + (1 if pending_today else 0)
-        if funnel.club_delivers_on(m["started_at"], m["tz"], m["plan"], now, ahead=1) and n_next not in loaded:
+        if funnel.club_delivers_on(m["started_at"], m["tz"], m["plan"], now, ahead=1, live_days=live_days) and n_next not in loaded:
             tomorrow[n_next] += 1
     return today, tomorrow
 

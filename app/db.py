@@ -312,6 +312,16 @@ async def club_set_repeat(tg_id: int, n: int) -> None:
     await _p().execute("UPDATE club_members SET repeat_n = $2 WHERE tg_id = $1", tg_id, n)
 
 
+async def slot_counts() -> dict:
+    """Сколько выбрали утро (day) и вечер (evening): все сёстры и участницы клуба."""
+    rows = await _p().fetch(
+        """SELECT u.slot, count(*) AS all_n,
+                  count(*) FILTER (WHERE EXISTS (SELECT 1 FROM club_members m
+                                                 WHERE m.tg_id = u.tg_id AND m.active)) AS club_n
+           FROM users u WHERE u.slot IS NOT NULL AND NOT u.blocked GROUP BY u.slot""")
+    return {r["slot"]: (r["all_n"], r["club_n"]) for r in rows}
+
+
 async def get_setting(key: str) -> str | None:
     return await _p().fetchval("SELECT value FROM settings WHERE key = $1", key)
 
