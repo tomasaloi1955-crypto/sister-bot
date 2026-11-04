@@ -124,7 +124,7 @@ REST_WEEKDAY = 6                                        # воскресенье
 
 @dataclass
 class Live:
-    days: frozenset = frozenset({0, 2, 4})              # 0 — понедельник
+    days: frozenset = frozenset({2, 4, 6})              # 0 — понедельник: ср, пт, вс
     hour: int = 19
     minute: int = 0
     on: bool = True                                     # /live off — пауза (отпуск)

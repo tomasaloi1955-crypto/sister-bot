@@ -238,7 +238,7 @@ async def live_link() -> str:
 
 
 def live_text(live: funnel.Live) -> str:
-    """«Пн, Ср, Пт в 19:00 (по Алматы)» — для текстов продажи и приветствия."""
+    """«Ср, Пт, Вс в 19:00 (по Алматы)» — для текстов продажи и приветствия."""
     return texts.LIVE_WHEN.format(days=live.days_text, time=live.time)
 
 

@@ -52,7 +52,7 @@ MISSING_HOUR = _int("MISSING_HOUR", 21)
 ADMIN_MORNING_HOUR = _int("ADMIN_MORNING_HOUR", 9)
 ADMIN_EVENING_HOUR = _int("ADMIN_EVENING_HOUR", 20)
 # Живые эфиры клуба — значения по умолчанию; меняются командой /live прямо в боте.
-LIVE_DAYS = _str("LIVE_DAYS", "пн ср пт")
+LIVE_DAYS = _str("LIVE_DAYS", "ср пт вс")
 LIVE_TIME = _str("LIVE_TIME", "19:00")         # по DEFAULT_TZ (часовой пояс тренера)
 LIVE_REMIND_HOUR = _int("LIVE_REMIND_HOUR", 10)  # утреннее «сегодня эфир»
 # Эфир не начался (в группе клуба не открыли видеочат) через столько минут после

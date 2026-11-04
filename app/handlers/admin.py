@@ -28,7 +28,7 @@ HELP = (
     "<b>Админка</b>\n\n"
     "/stats — статистика и источники\n"
     "/upload 2 — загрузить тренировку №2 бесплатной недели (всего 3)\n"
-    "/live — эфиры «3 раза в неделю»: /live пн ср пт 19:00, /live rec — сегодня по записи, /live link …, /live off\n"
+    "/live — эфиры «3 раза в неделю»: /live ср пт вс 19:00, /live rec — сегодня по записи, /live link …, /live off\n"
     "Тренировка в записи: просто пришлите видео — номер бот даст сам\n"
     "/upload_club 5 — заменить тренировку клуба №5\n"
     "/repeat on — вы на отдыхе: бот сразу шлёт повторы пройденного; /repeat off — снова новые\n"
@@ -268,7 +268,7 @@ async def live_cmd(message: Message, command: CommandObject, bot: Bot) -> None:
         hhmm = next((t for t in map(funnel.parse_time, arg.split()) if t), None) if any(
             ch.isdigit() for ch in arg) else None
         if not days and not hhmm:
-            await message.answer("Не поняла 🙈 Пример: <code>/live пн ср пт 19:00</code>")
+            await message.answer("Не поняла 🙈 Пример: <code>/live ср пт вс 19:00</code>")
             return
         if days:
             await db.set_setting("live_days", " ".join(funnel.WEEKDAYS[d] for d in sorted(days)))
@@ -326,7 +326,7 @@ async def _live_status() -> str:
         "Сёстрам удобнее (по анкете):\n"
         f"• {texts.SLOTS.get('day', 'днём')}: {day[0]} всего, из них в клубе {day[1]}\n"
         f"• {texts.SLOTS.get('evening', 'вечером')}: {eve[0]} всего, из них в клубе {eve[1]}\n\n"
-        "Поменять: <code>/live пн ср пт 19:00</code>\n"
+        "Поменять: <code>/live ср пт вс 19:00</code>\n"
         "Ссылка на группу: <code>/live link https://t.me/+…</code> (убрать: <code>/live link -</code>)\n"
         "Сегодня без эфира — по записи: <code>/live rec</code> (передумали: <code>/live live</code>)\n"
         "Отменить ближайший эфир совсем (без записи): <code>/live skip</code>\n"
