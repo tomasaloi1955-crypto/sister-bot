@@ -77,6 +77,25 @@ async def survey(cb: CallbackQuery, bot: Bot) -> None:
             await cb.message.answer(texts.SAVED)
 
 
+# ─────────────────────── предложение недели (/reweek) ───────────────────────
+
+@router.callback_query(F.data == "reweek")
+async def reweek(cb: CallbackQuery) -> None:
+    """Кнопка из рассылки /reweek: начинаем анкету, дальше — обычная неделя."""
+    fu = cb.from_user
+    u = await db.get_user(fu.id) or await db.upsert_user(fu.id, fu.username, fu.first_name, None)
+    if u["started_at"] is not None or u["paid_at"] is not None:   # уже в воронке или в клубе
+        await cb.answer(texts.REWEEK_ALREADY, show_alert=True)
+        return
+    await cb.answer()
+    try:
+        await cb.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
+    await cb.message.answer(texts.WELCOME.format(name=messages.name_of(u), coach=config.COACH_NAME))
+    await cb.message.answer(texts.Q_GOAL, reply_markup=keyboards.choices("q:goal", texts.GOALS))
+
+
 # ─────────────────────────────── «Сделала!» ───────────────────────────────
 
 @router.callback_query(F.data.startswith("done:"))

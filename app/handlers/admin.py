@@ -37,6 +37,7 @@ HELP = (
     "/workouts — какие тренировки загружены\n"
     "/show 2 — посмотреть тренировку как участница\n"
     "/broadcast — рассылка по сегменту\n"
+    "/reweek — предложить неделю бесплатных тренировок тем, кто нажал /start, но не прошёл анкету\n"
     "/reviews — модерация отзывов\n"
     "/list — последние 30 сестёр: id, день, сколько сделала, купила ли\n"
     "/who 123456789 — где сейчас сестра: анкета, тренировки, оплата\n"
@@ -445,6 +446,59 @@ async def _run_broadcast(bot: Bot, admin_id: int, data: dict) -> None:
     log.info("Рассылка %s: %s", data["segment"], counts)
     await bot.send_message(admin_id, f"✅ Рассылка готова: доставлено {counts['ok']}, "
                                      f"заблокировали бота {counts['blocked']}, ошибок {counts['failed']}.")
+
+
+# ─────────────────────── предложение недели ───────────────────────
+
+@router.message(Command("reweek"))
+async def reweek(message: Message, state: FSMContext) -> None:
+    await state.clear()
+    ids = await db.reweek_ids()
+    await message.answer(
+        "Предложение «неделя бесплатных тренировок в записи» получат те, кто нажал /start, "
+        "но не прошёл анкету (в воронку не попал), не отписался и не заблокировал бота. "
+        f"Кто уже в воронке, его не получит. Получательниц: <b>{len(ids)}</b>.\n\n"
+        "Так выглядит сообщение 👇")
+    await message.answer(texts.REWEEK_OFFER.format(name=messages.name_of(None)),
+                         reply_markup=keyboards.reweek())
+    await message.answer("Отправляем?", reply_markup=keyboards.confirm_reweek())
+
+
+@router.callback_query(F.data.startswith("adm:rw:"))
+async def reweek_confirm(cb: CallbackQuery, bot: Bot) -> None:
+    await cb.answer()
+    if cb.data.endswith("cancel"):
+        await cb.message.edit_text("Рассылка отменена.")
+        return
+    await cb.message.edit_text("🚀 Рассылка пошла. Пришлю итог, когда закончу.")
+    task = asyncio.create_task(_run_reweek(bot, cb.from_user.id))
+    _background.add(task)
+    task.add_done_callback(_background.discard)
+
+
+async def _run_reweek(bot: Bot, admin_id: int) -> None:
+    """Каждой — одно предложение в день (ключ в журнале sends), даже если
+    нажать «Отправить» дважды. Перед отправкой — проверка канала клуба."""
+    key = f"reweek:{datetime.now(timezone.utc).date()}"
+    counts = {sender.OK: 0, sender.BLOCKED: 0, sender.FAILED: 0, "in_club": 0, "dup": 0}
+    for tg_id in await db.reweek_ids():
+        if await payments.club_plan_by_membership(bot, tg_id):
+            counts["in_club"] += 1
+            continue
+        if not await db.claim_send(tg_id, key):
+            counts["dup"] += 1
+            continue
+        u = await db.get_user(tg_id)
+        status = await messages.say(bot, tg_id, texts.REWEEK_OFFER.format(name=messages.name_of(u)),
+                                    keyboards.reweek())
+        if status == sender.FAILED:
+            await db.release_send(tg_id, key)
+        counts[status] += 1
+    log.info("Предложение недели: %s", counts)
+    await bot.send_message(
+        admin_id, f"✅ Предложение недели разослано: доставлено {counts['ok']}, "
+                  f"заблокировали бота {counts['blocked']}, ошибок {counts['failed']}, "
+                  f"уже в клубе {counts['in_club']}, сегодня уже получали {counts['dup']}.")
 
 
 # ─────────────────────────────── отзывы ───────────────────────────────

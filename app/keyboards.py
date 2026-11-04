@@ -134,6 +134,15 @@ def segments() -> InlineKeyboardMarkup:
     return _kb([[B(text=name, callback_data=f"adm:seg:{key}")] for key, name in SEGMENT_NAMES.items()])
 
 
+def reweek() -> InlineKeyboardMarkup:
+    return _kb([[B(text=texts.REWEEK_BUTTON, callback_data="reweek")]])
+
+
+def confirm_reweek() -> InlineKeyboardMarkup:
+    return _kb([[B(text="🚀 Отправить", callback_data="adm:rw:go"),
+                 B(text="Отмена", callback_data="adm:rw:cancel")]])
+
+
 def confirm_broadcast() -> InlineKeyboardMarkup:
     return _kb([[B(text="🚀 Отправить", callback_data="adm:bc:go"),
                  B(text="Отмена", callback_data="adm:bc:cancel")]])
