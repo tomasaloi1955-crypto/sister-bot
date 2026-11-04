@@ -37,7 +37,7 @@ HELP = (
     "/workouts — какие тренировки загружены\n"
     "/show 2 — посмотреть тренировку как участница\n"
     "/broadcast — рассылка по сегменту\n"
-    "/reweek — предложить неделю бесплатных тренировок заново всем, кто не купил клуб\n"
+    "/reweek — предложить неделю бесплатных тренировок тем, кто нажал /start, но не прошёл анкету\n"
     "/reviews — модерация отзывов\n"
     "/list — последние 30 сестёр: id, день, сколько сделала, купила ли\n"
     "/who 123456789 — где сейчас сестра: анкета, тренировки, оплата\n"
@@ -448,16 +448,16 @@ async def _run_broadcast(bot: Bot, admin_id: int, data: dict) -> None:
                                      f"заблокировали бота {counts['blocked']}, ошибок {counts['failed']}.")
 
 
-# ─────────────────────────── неделя заново ───────────────────────────
+# ─────────────────────── предложение недели ───────────────────────
 
 @router.message(Command("reweek"))
 async def reweek(message: Message, state: FSMContext) -> None:
     await state.clear()
     ids = await db.reweek_ids()
     await message.answer(
-        "Предложение «неделя бесплатных тренировок в записи» получат все, кто не купил клуб, "
-        "не отписался, не заблокировал бота и сейчас не проходит неделю "
-        f"(в том числе не закончившие анкету). Получательниц: <b>{len(ids)}</b>.\n\n"
+        "Предложение «неделя бесплатных тренировок в записи» получат те, кто нажал /start, "
+        "но не прошёл анкету (в воронку не попал), не отписался и не заблокировал бота. "
+        f"Кто уже в воронке, его не получит. Получательниц: <b>{len(ids)}</b>.\n\n"
         "Так выглядит сообщение 👇")
     await message.answer(texts.REWEEK_OFFER.format(name=messages.name_of(None)),
                          reply_markup=keyboards.reweek())
@@ -494,7 +494,7 @@ async def _run_reweek(bot: Bot, admin_id: int) -> None:
         if status == sender.FAILED:
             await db.release_send(tg_id, key)
         counts[status] += 1
-    log.info("Неделя заново: %s", counts)
+    log.info("Предложение недели: %s", counts)
     await bot.send_message(
         admin_id, f"✅ Предложение недели разослано: доставлено {counts['ok']}, "
                   f"заблокировали бота {counts['blocked']}, ошибок {counts['failed']}, "

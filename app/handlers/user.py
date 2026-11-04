@@ -77,38 +77,23 @@ async def survey(cb: CallbackQuery, bot: Bot) -> None:
             await cb.message.answer(texts.SAVED)
 
 
-# ─────────────────────────── неделя заново (/reweek) ───────────────────────────
+# ─────────────────────── предложение недели (/reweek) ───────────────────────
 
 @router.callback_query(F.data == "reweek")
-async def reweek(cb: CallbackQuery, bot: Bot) -> None:
-    """Кнопка из рассылки /reweek: бесплатная неделя начинается с 1-го дня."""
+async def reweek(cb: CallbackQuery) -> None:
+    """Кнопка из рассылки /reweek: начинаем анкету, дальше — обычная неделя."""
     fu = cb.from_user
     u = await db.get_user(fu.id) or await db.upsert_user(fu.id, fu.username, fu.first_name, None)
-    if u["paid_at"] is not None:
-        await cb.answer(texts.REWEEK_PAID, show_alert=True)
-        return
-    if u["started_at"] is None:                 # анкету не закончила — начинаем с неё
-        await cb.answer()
-        await cb.message.answer(texts.WELCOME.format(name=messages.name_of(u), coach=config.COACH_NAME))
-        await cb.message.answer(texts.Q_GOAL, reply_markup=keyboards.choices("q:goal", texts.GOALS))
-        return
-    day = funnel.funnel_day(u["started_at"], _now(), u["tz"])
-    if day <= funnel.SALE_DAYS[-1]:             # неделя ещё идёт (или только что началась заново)
-        await cb.answer(texts.REWEEK_ALREADY.format(day=day), show_alert=True)
+    if u["started_at"] is not None or u["paid_at"] is not None:   # уже в воронке или в клубе
+        await cb.answer(texts.REWEEK_ALREADY, show_alert=True)
         return
     await cb.answer()
     try:
         await cb.message.edit_reply_markup(reply_markup=None)
     except Exception:
         pass
-    u = await db.restart_week(u["tg_id"])
-    log.info("Неделя заново: %s", u["tg_id"])
-    ready = 1 in await db.workout_days()
-    await messages.say(bot, u["tg_id"], (texts.REWEEK_STARTED if ready else texts.REWEEK_STARTED_WAIT)
-                       .format(tz=u["tz"]))
-    slot = funnel.slots_of(u["slot"])[0]
-    if ready and await db.claim_send(u["tg_id"], f"workout:1:{slot}"):
-        await messages.send_workout(bot, u["tg_id"], 1, slot)
+    await cb.message.answer(texts.WELCOME.format(name=messages.name_of(u), coach=config.COACH_NAME))
+    await cb.message.answer(texts.Q_GOAL, reply_markup=keyboards.choices("q:goal", texts.GOALS))
 
 
 # ─────────────────────────────── «Сделала!» ───────────────────────────────
