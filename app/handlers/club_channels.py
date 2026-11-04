@@ -11,7 +11,7 @@ import html
 import logging
 
 from aiogram import Bot, F, Router
-from aiogram.filters import StateFilter
+from aiogram.filters import Command, StateFilter
 from aiogram.types import CallbackQuery, ChatMemberUpdated, Message
 from aiogram.types import InlineKeyboardButton as B
 from aiogram.types import InlineKeyboardMarkup
@@ -64,6 +64,47 @@ async def forwarded_from_channel(message: Message, bot: Bot) -> None:
         return
     await db.remember_channel(chat.id, chat.title)
     await message.answer(f"📢 Канал «{html.escape(chat.title or '')}». Что это за канал?", reply_markup=_kb(chat.id))
+
+
+@router.message(F.chat.type.in_({"group", "supergroup"}), admin_only, Command("clubhere"))
+async def club_here(message: Message, bot: Bot) -> None:
+    """Админ пишет /clubhere в группе — бот спрашивает в личке, чья это группа
+    (переслать боту «пост из группы» нельзя — это путь только для каналов)."""
+    chat = message.chat
+    try:
+        is_admin = (await bot.get_chat_member(chat.id, bot.id)).status == "administrator"
+    except Exception:
+        is_admin = False
+    if is_admin:
+        await db.remember_channel(chat.id, chat.title)
+        text = (f"📢 Группа «{html.escape(chat.title or '')}». Что это за группа?")
+        markup = _kb(chat.id)
+    else:
+        text = (f"Я не администратор группы «{html.escape(chat.title or '')}». "
+                "Сделайте меня администратором и напишите там /clubhere ещё раз.")
+        markup = None
+    try:
+        await bot.send_message(message.from_user.id, text, reply_markup=markup)
+    except Exception:
+        log.exception("Не удалось написать админу %s в личку", message.from_user.id)
+    try:
+        await message.delete()                    # чтобы команда не висела в группе
+    except Exception:
+        pass
+
+
+@router.message(F.chat.type == "private", admin_only, Command("channels"))
+async def channels_list(message: Message) -> None:
+    """Все каналы и группы, где бот — администратор, и какой тариф им назначен."""
+    rows = await db.club_channels()
+    if not rows:
+        await message.answer("Бот пока не знает ни одного канала или группы. Сделайте его администратором "
+                             "и напишите в группе /clubhere (в канале — перешлите боту любой пост).")
+        return
+    await message.answer("Каналы и группы бота. Нажмите, чтобы поменять:")
+    for r in rows:
+        await message.answer(f"«{html.escape(r['title'] or str(r['chat_id']))}» — сейчас: "
+                             f"{PLAN_LABELS.get(r['plan'] or '', '❓ не выбрано')}", reply_markup=_kb(r["chat_id"]))
 
 
 @router.callback_query(admin_only, F.data.startswith("adm:ch:"))
