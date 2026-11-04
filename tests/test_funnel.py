@@ -152,3 +152,18 @@ def test_club_repeat_cycle():
     assert next_repeat([1, 2, 3, 4], 5, 4) == 1          # по кругу
     assert next_repeat([1, 2, 7], 3, 2) == 1             # только пройденные (< следующей)
     assert next_repeat([], 1, 0) is None
+
+
+def test_reweek_resets_every_free_week_key():
+    """/reweek стирает из журнала все сообщения недели и писем после неё —
+    иначе после перезапуска они бы не пришли второй раз. Клуб, эфиры и само
+    предложение остаются."""
+    import re
+    from app import db
+    pattern = re.compile(db.FUNNEL_SEND_KEYS)
+    for slot in ("day", "evening"):
+        p = person(slot=slot)
+        seen = {k for d in range(1, 60) for h in range(24) for k in keys(p, at(d, h))}
+        assert seen and all(pattern.search(k) for k in seen), seen
+    for k in ("club:3:day", "live:2026-10-01:day", "liverec:2026-10-01", "reweek:2026-11-04"):
+        assert not pattern.search(k)

@@ -198,10 +198,14 @@ async def media_mark_deleted(mid: int) -> None:
 
 
 async def media_rewatch_state(tg_id: int, workout: int, club: bool = False) -> tuple[bool, bool]:
-    """(видео этой тренировки ей отправлялось, повтор уже был)."""
+    """(видео этой тренировки ей отправлялось, повтор уже был). Для бесплатной
+    недели считаются только видео текущей недели: после /reweek «Посмотреть
+    снова» снова доступен один раз."""
     row = await _p().fetchrow(
-        """SELECT count(*) > 0 AS sent, bool_or(is_rewatch) AS rewatched
-           FROM media_sends WHERE tg_id = $1 AND workout = $2 AND club = $3""", tg_id, workout, club)
+        """SELECT count(*) > 0 AS sent, bool_or(m.is_rewatch) AS rewatched
+           FROM media_sends m JOIN users u USING (tg_id)
+           WHERE m.tg_id = $1 AND m.workout = $2 AND m.club = $3
+             AND (m.club OR u.started_at IS NULL OR m.created_at >= u.started_at)""", tg_id, workout, club)
     return bool(row["sent"]), bool(row["rewatched"])
 
 
@@ -534,6 +538,37 @@ async def segment_ids(segment: str) -> list[int]:
     rows = await _p().fetch(
         f"SELECT u.tg_id FROM users u WHERE NOT u.blocked AND NOT u.unsubscribed AND {where}")
     return [r["tg_id"] for r in rows]
+
+
+# ─────────────────────────── повтор бесплатной недели (/reweek) ───────────────────────────
+
+# Ключи журнала sends, которые относятся к бесплатной неделе и письмам после неё.
+FUNNEL_SEND_KEYS = r"^(workout|checkin|nudge|warm_reviews|warm_stats|sale|post):"
+
+_REWEEK_WHERE = f"""NOT u.blocked AND NOT u.unsubscribed AND u.paid_at IS NULL
+      AND NOT EXISTS (SELECT 1 FROM club_members m WHERE m.tg_id = u.tg_id AND m.active)
+      AND (u.started_at IS NULL
+           OR u.started_at < now() - make_interval(days => {funnel.SALE_DAYS[-1]}))"""
+
+
+async def reweek_ids() -> list[int]:
+    """Кому предложить неделю заново: не купили клуб, не отписались, не
+    заблокировали бота и сейчас не проходят неделю (её продажи уже позади)
+    или так и не закончили анкету."""
+    rows = await _p().fetch(f"SELECT u.tg_id FROM users u WHERE {_REWEEK_WHERE}")
+    return [r["tg_id"] for r in rows]
+
+
+async def restart_week(tg_id: int) -> asyncpg.Record:
+    """Начать бесплатную неделю заново: сегодня — снова день 1. Стираем из
+    журнала отправки недели и писем после неё, а также отметки «Сделала»,
+    чтобы тренировки, напоминания и прогрев пришли ещё раз."""
+    async with _p().acquire() as con, con.transaction():
+        await con.execute("DELETE FROM sends WHERE tg_id = $1 AND key ~ $2", tg_id, FUNNEL_SEND_KEYS)
+        await con.execute("DELETE FROM completions WHERE tg_id = $1", tg_id)
+        return await con.fetchrow(
+            """UPDATE users SET started_at = now(), unsubscribed = false, awaiting_feedback_day = NULL
+               WHERE tg_id = $1 RETURNING *""", tg_id)
 
 
 async def stats() -> dict:
