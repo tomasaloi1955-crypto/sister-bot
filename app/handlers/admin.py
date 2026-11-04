@@ -170,7 +170,7 @@ async def upload_video(message: Message, state: FSMContext, bot: Bot) -> None:
     await message.answer("Видео есть. Теперь пришли текст тренировки (или «-» — без текста).")
 
 
-@router.message(Upload.content, F.text)
+@router.message(Upload.content, F.text, ~F.text.startswith("/"))
 async def upload_text_only(message: Message, state: FSMContext, bot: Bot) -> None:
     first, _, rest = message.text.partition("\n")
     if first.strip().startswith("http"):
@@ -185,7 +185,7 @@ def _html_rest(message: Message, rest: str) -> str:
     return full.split("\n", 1)[1].strip() if "\n" in full else html.escape(rest.strip())
 
 
-@router.message(Upload.text, F.text)
+@router.message(Upload.text, F.text, ~F.text.startswith("/"))
 async def upload_text(message: Message, state: FSMContext, bot: Bot) -> None:
     data = await state.get_data()
     text = "" if message.text.strip() == "-" else message.html_text
@@ -412,7 +412,7 @@ async def broadcast_segment(cb: CallbackQuery, state: FSMContext) -> None:
                             "Пришли сообщение для рассылки (текст, фото, видео — что угодно). /cancel — отмена.")
 
 
-@router.message(Broadcast.message)
+@router.message(Broadcast.message, ~F.text.startswith("/"))   # команда — не текст рассылки
 async def broadcast_message(message: Message, state: FSMContext) -> None:
     data = await state.get_data()
     ids = await db.segment_ids(data["segment"])
