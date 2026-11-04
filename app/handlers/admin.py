@@ -28,8 +28,8 @@ HELP = (
     "<b>Админка</b>\n\n"
     "/stats — статистика и источники\n"
     "/upload 2 — загрузить тренировку №2 бесплатной недели (всего 3)\n"
-    "/live — расписание живых эфиров клуба: /live пн ср пт 19:00, /live link …, /live skip, /live off\n"
-    "Тренировка в записи (тариф «Записи»): просто пришлите видео — номер бот даст сам\n"
+    "/live — эфиры «3 раза в неделю»: /live пн ср пт 19:00, /live rec — сегодня по записи, /live link …, /live off\n"
+    "Тренировка в записи: просто пришлите видео — номер бот даст сам\n"
     "/upload_club 5 — заменить тренировку клуба №5\n"
     "/repeat on — вы на отдыхе: бот сразу шлёт повторы пройденного; /repeat off — снова новые\n"
     "/channels — каналы и группы клуба: какая группа к какому тарифу (поменять кнопкой)\n"
@@ -251,6 +251,9 @@ async def live_cmd(message: Message, command: CommandObject, bot: Bot) -> None:
     word = arg.split()[0].lower() if arg else ""
     if word in ("on", "off"):
         await db.set_setting("live_on", word)
+    elif word in ("rec", "live"):
+        await message.answer(await _set_today_mode(bot, word))
+        return
     elif word == "link":
         link = arg[4:].strip()
         if link not in ("", "-") and not link.startswith(("https://", "http://", "tg://")):
@@ -274,24 +277,59 @@ async def live_cmd(message: Message, command: CommandObject, bot: Bot) -> None:
     await message.answer(await _live_status())
 
 
+async def _set_today_mode(bot: Bot, mode: str, day: str | None = None) -> str:
+    """Сегодня эфир (live) или по записи (rec). По записи — сразу прогнать тик:
+    сёстры «3 раза в неделю» получат тренировку, не дожидаясь будильника."""
+    now = datetime.now(timezone.utc)
+    today = funnel.live_today(await messages.live_schedule(), now)
+    if today is None or (day and day != today.isoformat()):
+        return "Сегодня эфира по расписанию нет (/live)."
+    if await db.already_sent_any(f"liverec:{today}"):
+        return "Сёстрам «3 раза в неделю» сегодняшняя запись уже отправлена 🤍"
+    await db.set_setting(f"live_mode:{today}", mode)
+    if mode == "live":
+        return "📡 Отлично, сегодня эфир — напомню сёстрам утром и за час до начала."
+    from .. import tick
+    task = asyncio.create_task(tick.run(bot))
+    _background.add(task)
+    task.add_done_callback(_background.discard)
+    return ("🎬 Сегодня по записи — сёстры «3 раза в неделю» получат тренировку "
+            f"{'сейчас' if now.astimezone(funnel.zone(config.DEFAULT_TZ)).hour >= config.LIVE_REMIND_HOUR else f'в {config.LIVE_REMIND_HOUR}:00'} "
+            "(следующую по номеру; если новой нет — повтор с усложнением).")
+
+
+@router.callback_query(F.data.startswith("adm:lm:"))
+async def live_mode_button(cb: CallbackQuery, bot: Bot) -> None:
+    _, _, day, mode = cb.data.split(":", 3)
+    answer = await _set_today_mode(bot, mode, day)
+    await cb.answer()
+    await cb.message.edit_text(cb.message.html_text + "\n\n→ " + answer)
+
+
 async def _live_status() -> str:
     live = await messages.live_schedule()
     link = await messages.live_link()
-    nxt = funnel.next_live(live, datetime.now(timezone.utc))
+    now = datetime.now(timezone.utc)
+    nxt = funnel.next_live(live, now)
+    today = funnel.live_today(live, now)
+    mode = await db.get_setting(f"live_mode:{today}") if today else None
     slots = await db.slot_counts()
     day, eve = slots.get("day", (0, 0)), slots.get("evening", (0, 0))
     return (
         "📡 <b>Живые эфиры клуба</b> " + ("" if live.on else "— <b>на паузе</b> (/live on)") + "\n"
         f"Когда: {messages.live_text(live)}\n"
         + (f"Ближайший: {nxt:%d.%m} в {nxt:%H:%M}\n" if nxt else "")
+        + (f"Сегодня: {'🎬 по записи' if mode == 'rec' else '📡 эфир'}\n" if today else "")
         + "Ссылка на эфир: " + (link or "не указана — сёстры увидят «заходи в группу клуба»") + "\n"
-        "Напоминания получает тариф «Онлайн»; тарифу «Записи» эфиры не приходят.\n\n"
+        "Это для тарифа «3 раза в неделю»; «6 раз в неделю» всегда получает записи.\n"
+        f"Эфир не начался через {config.LIVE_GRACE_MIN} мин — сёстрам уходит тренировка в записи.\n\n"
         "Сёстрам удобнее (по анкете):\n"
         f"• {texts.SLOTS.get('day', 'днём')}: {day[0]} всего, из них в клубе {day[1]}\n"
         f"• {texts.SLOTS.get('evening', 'вечером')}: {eve[0]} всего, из них в клубе {eve[1]}\n\n"
         "Поменять: <code>/live пн ср пт 19:00</code>\n"
         "Ссылка на группу: <code>/live link https://t.me/+…</code> (убрать: <code>/live link -</code>)\n"
-        "Отменить ближайший эфир и предупредить сестёр: <code>/live skip</code>\n"
+        "Сегодня без эфира — по записи: <code>/live rec</code> (передумали: <code>/live live</code>)\n"
+        "Отменить ближайший эфир совсем (без записи): <code>/live skip</code>\n"
         "Отпуск — без напоминаний: <code>/live off</code>, вернуться: <code>/live on</code>")
 
 
@@ -552,7 +590,7 @@ async def grant(message: Message, command: CommandObject, bot: Bot) -> None:
     plan = f"{args[1]}x" if len(args) > 1 else config.DEFAULT_PLAN
     if not args or not args[0].isdigit() or plan not in config.PLANS:
         await message.answer("Формат: <code>/grant 123456789 3</code> или <code>/grant 123456789 6</code>\n"
-                             "(Telegram id участницы из /export; 3 — «Онлайн», 6 — «Записи»)")
+                             "(Telegram id участницы из /export; 3 или 6 раз в неделю)")
         return
     tg_id = int(args[0])
     await db.add_payment(tg_id, "manual", None, None, None, "paid", {"by": message.from_user.id, "plan": plan})
@@ -587,7 +625,7 @@ async def route_cmd(message: Message, command: CommandObject) -> None:
         route = ROUTE_ALIASES.get(args[1].lower()) or (f"url:{args[1]}" if args[1].startswith("https://") else None)
     if route is None:
         await message.answer("Формат: <code>/route 12345 school</code>\n"
-                             "Вместо school: 3 (клуб «Онлайн»), 6 (клуб «Записи»), ignore или адрес https://…")
+                             "Вместо school: 3 (клуб 3 раза), 6 (клуб 6 раз), ignore или адрес https://…")
         return
     await db.set_product_route(args[0], route)
     await message.answer(f"✅ Товар {html.escape(args[0])} → {html.escape(tribute_router.route_name(route))}")

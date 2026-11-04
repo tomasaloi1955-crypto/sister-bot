@@ -116,23 +116,34 @@ def test_parse_live():
     assert funnel.parse_time("пн") is None
 
 
-def test_live_reminders():
+def test_live_actions():
     live = funnel.Live(days=frozenset({0, 2, 4}), hour=19)
     fri = 2                                                  # день 2 = пятница 2 октября
-    assert funnel.live_reminder(live, at(fri, 9)) is None    # рано
-    key, kind, start = funnel.live_reminder(live, at(fri, 10))
+
+    def kinds(now, mode=None, started=False):
+        return [k for _, k, _ in funnel.live_actions(live, now, mode, started)]
+    assert kinds(at(fri, 9)) == []                           # рано
+    key, kind, _ = funnel.live_actions(live, at(fri, 10))[0]
     assert (key, kind) == ("live:2026-10-02:day", "day")
-    assert funnel.live_reminder(live, at(fri, 18))[1] == "soon"
-    assert funnel.live_reminder(live, at(fri, 19, 10))[1] == "soon"
-    assert funnel.live_reminder(live, at(fri, 19, 30)) is None   # эфир идёт
-    assert funnel.live_reminder(live, at(1, 18)) is None         # четверг — эфира нет
+    assert kinds(at(fri, 18)) == ["soon"]
+    assert kinds(at(fri, 19, 10)) == ["soon"]
+    assert kinds(at(fri, 19, 10), started=True) == ["soon"]
+    assert kinds(at(fri, 19, 16)) == ["soon", "rec"]         # эфир не начался — запись
+    assert kinds(at(fri, 20)) == ["rec"]
+    assert kinds(at(fri, 20), started=True) == []            # эфир идёт — запись не нужна
+    assert kinds(at(fri, 22)) == []                          # тихий час
+    # тренер выбрала «по записи» — запись с утреннего часа, без напоминаний об эфире
+    assert kinds(at(fri, 9), mode="rec") == []
+    assert funnel.live_actions(live, at(fri, 10), "rec")[0][:2] == ("liverec:2026-10-02", "rec")
+    assert kinds(at(fri, 18), mode="rec") == ["rec"]
+    assert kinds(at(1, 18)) == []                            # четверг — эфира нет
+    assert kinds(at(fri, 20), mode="live") == ["rec"]        # «будет эфир», но не начался
     off = funnel.Live(days=live.days, hour=19, on=False)
-    assert funnel.live_reminder(off, at(fri, 18)) is None
+    assert funnel.live_actions(off, at(fri, 18)) == []
     skipped = funnel.Live(days=live.days, hour=19, skip=frozenset({"2026-10-02"}))
-    assert funnel.live_reminder(skipped, at(fri, 18)) is None
+    assert funnel.live_actions(skipped, at(fri, 20)) == []
     assert funnel.next_live(skipped, at(fri, 12)).day == 5       # следующий — пн 5 октября
     assert funnel.next_live(live, at(fri, 12)).day == 2
-
 
 def test_club_repeat_cycle():
     from app.messages import next_repeat

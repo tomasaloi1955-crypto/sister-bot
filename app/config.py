@@ -55,6 +55,9 @@ ADMIN_EVENING_HOUR = _int("ADMIN_EVENING_HOUR", 20)
 LIVE_DAYS = _str("LIVE_DAYS", "пн ср пт")
 LIVE_TIME = _str("LIVE_TIME", "19:00")         # по DEFAULT_TZ (часовой пояс тренера)
 LIVE_REMIND_HOUR = _int("LIVE_REMIND_HOUR", 10)  # утреннее «сегодня эфир»
+# Эфир не начался (в группе клуба не открыли видеочат) через столько минут после
+# начала — сёстрам «3 раза в неделю» уходит тренировка в записи.
+LIVE_GRACE_MIN = _int("LIVE_GRACE_MIN", 15)
 LIVE_LINK = _str("LIVE_LINK")                  # ссылка на группу клуба, где идёт эфир
 
 FREE_CHAT_LINK = _str("FREE_CHAT_LINK")      # закрытый женский чат бесплатной недели

@@ -112,8 +112,9 @@ def plan(p: Person, now: datetime) -> list[Action]:
 
 
 # ─────────────────────────────── клуб ───────────────────────────────
-# Тариф 3x «Онлайн» — 3 живых эфира в неделю в группе клуба (дни и время — /live),
-# бот только напоминает. Тариф 6x «Записи» — эфиров нет: бот лично присылает
+# Тариф 3x «3 раза в неделю» — 3 тренировки в неделю (дни и время — /live): обычно
+# живой эфир в группе клуба (бот напоминает), а если эфира не будет — бот лично
+# присылает тренировку в записи. Тариф 6x — эфиров нет: бот лично присылает
 # тренировку в записи 6 дней из 7 (неделя — от дня покупки), видео удаляется
 # через MEDIA_TTL_HOURS.
 WEEKDAYS = ("пн", "вт", "ср", "чт", "пт", "сб", "вс")
@@ -162,19 +163,41 @@ def live_start(live: Live, day) -> datetime:
     return datetime(day.year, day.month, day.day, live.hour, live.minute, tzinfo=zone(config.DEFAULT_TZ))
 
 
-def live_reminder(live: Live, now: datetime) -> tuple[str, str, datetime] | None:
-    """Напоминание об эфире, положенное сейчас: (ключ, вид, начало). Вид:
-    day — утром «сегодня эфир», soon — за час «скоро начинаем»."""
-    local = now.astimezone(zone(config.DEFAULT_TZ))
-    today = local.date()
+def live_today(live: Live, now: datetime):
+    """Дата сегодняшнего эфира (по часовому поясу тренера) или None, если эфира нет."""
+    today = now.astimezone(zone(config.DEFAULT_TZ)).date()
     if not live.on or today.weekday() not in live.days or today.isoformat() in live.skip:
         return None
+    return today
+
+
+def live_actions(live: Live, now: datetime, mode: str | None = None,
+                 started: bool = False) -> list[tuple[str, str, datetime]]:
+    """Что положено участницам тарифа 3x сейчас: [(ключ, вид, начало эфира)].
+
+    mode — решение тренера на сегодня: "rec" — сегодня по записи (запись уходит
+    сразу с утреннего часа), иначе — эфир. Вид: day — утром «сегодня эфир»,
+    soon — за час «скоро начинаем», rec — тренировка в записи. Если эфир так и не
+    начался (started — в группе клуба не открыли видеочат) через LIVE_GRACE_MIN
+    после начала, — тоже rec: «сегодня занимаемся по записи»."""
+    today = live_today(live, now)
+    if today is None:
+        return []
+    local = now.astimezone(zone(config.DEFAULT_TZ))
+    if local.hour >= config.QUIET_HOUR:
+        return []
     start = live_start(live, today)
+    rec = (f"liverec:{today}", "rec", start)
+    if mode == "rec":
+        return [rec] if local.hour >= config.LIVE_REMIND_HOUR else []
+    out = []
     if start - timedelta(hours=1) <= now < start + timedelta(minutes=20):
-        return f"live:{today}:soon", "soon", start
-    if local.hour >= config.LIVE_REMIND_HOUR and now < start - timedelta(hours=1):
-        return f"live:{today}:day", "day", start
-    return None
+        out.append((f"live:{today}:soon", "soon", start))
+    elif local.hour >= config.LIVE_REMIND_HOUR and now < start - timedelta(hours=1):
+        out.append((f"live:{today}:day", "day", start))
+    if not started and now >= start + timedelta(minutes=config.LIVE_GRACE_MIN):
+        out.append(rec)
+    return out
 
 
 def next_live(live: Live, now: datetime) -> datetime | None:

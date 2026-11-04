@@ -4,11 +4,11 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections import Counter
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from aiogram import Bot
 
-from . import config, db, funnel, messages, payments, sender, texts, tribute_router
+from . import config, db, funnel, keyboards, messages, payments, sender, texts, tribute_router
 
 log = logging.getLogger(__name__)
 _lock = asyncio.Lock()
@@ -61,28 +61,79 @@ async def run(bot: Bot, now: datetime | None = None) -> dict:
 
 
 async def run_live(bot: Bot, now: datetime, live: funnel.Live, blocked: set[int], result: Counter) -> None:
-    """Напоминания об эфире участницам тарифа «Онлайн» (3x): утром и за час до начала."""
-    r = funnel.live_reminder(live, now)
-    if r is None:
+    """Тариф 3x в день эфира: напоминания (утром и за час) или — если сегодня по
+    записи (решила тренер или эфир так и не начался) — тренировка в записи лично."""
+    today = funnel.live_today(live, now)
+    if today is None:
         return
-    key, kind, start = r
+    mode = await db.get_setting(f"live_mode:{today}")
+    started = bool(await db.get_setting(f"live_started:{today}"))
+    await ask_coach(bot, live, today, mode, now)
+    actions = funnel.live_actions(live, now, mode, started)
+    if not actions:
+        return
     members = await live_members()
-    sent_before = await db.already_sent([(m["tg_id"], key) for m in members])
+    loaded = await db.club_workout_numbers()
     link = await messages.live_link()
-    for m in members:
-        tg = m["tg_id"]
-        if (tg, key) in sent_before or tg in blocked or not await db.claim_send(tg, key):
-            continue
-        status = await messages.send_live_reminder(bot, m, kind, start, link)
-        if status == sender.FAILED:
-            await db.release_send(tg, key)
-        elif status == sender.BLOCKED:
-            blocked.add(tg)
-        result[f"live_{kind}"] += 1
+    for key, kind, start in actions:
+        sent_before = await db.already_sent([(m["tg_id"], key) for m in members])
+        todo = [m for m in members if (m["tg_id"], key) not in sent_before and m["tg_id"] not in blocked]
+        if kind == "rec" and mode != "rec" and todo and await db.claim_alert(f"livemissed:{today}"):
+            await messages.notify_admins(bot, f"🎬 Эфир {start:%d.%m} в {start:%H:%M} не начался (видеочата в "
+                                              f"группе нет) — шлю сёстрам «3 раза в неделю» тренировку в записи "
+                                              f"({len(todo)}).")
+        for m in todo:
+            tg = m["tg_id"]
+            if not await db.claim_send(tg, key):
+                continue
+            if kind == "rec":
+                text = texts.LIVE_REC_PLANNED if mode == "rec" else texts.LIVE_REC_MISSED
+                status = await messages.say(bot, tg, text.format(name=messages.name_of(m)))
+                if status == sender.OK:
+                    status = await deliver_next(bot, m, loaded, result)
+            else:
+                status = await messages.send_live_reminder(bot, m, kind, start, link)
+            if status == sender.FAILED:
+                await db.release_send(tg, key)
+            elif status == sender.BLOCKED:
+                blocked.add(tg)
+            result[f"live_{kind}"] += 1
+
+
+async def ask_coach(bot: Bot, live: funnel.Live, today, mode: str | None, now: datetime) -> None:
+    """Утром в день эфира — спросить тренера: эфир будет или сегодня по записи?"""
+    start = funnel.live_start(live, today)
+    local = now.astimezone(funnel.zone(config.DEFAULT_TZ))
+    if mode or local.hour < config.ADMIN_MORNING_HOUR or now >= start - timedelta(hours=1):
+        return
+    if not await db.claim_alert(f"livechoice:{today}"):
+        return
+    await messages.notify_admins(
+        bot, texts.LIVE_ASK_COACH.format(time=f"{start:%H:%M}", grace=config.LIVE_GRACE_MIN),
+        keyboards.live_choice(today.isoformat()))
+
+
+async def deliver_next(bot: Bot, m, loaded: dict, result: Counter) -> str:
+    """Следующая тренировка в записи по её номеру; нет новой — повтор пройденной."""
+    tg, n = m["tg_id"], m["next_n"]
+    if n in loaded:
+        status = await messages.send_club_workout(bot, tg, n)
+        if status == sender.OK:
+            await db.club_advance(tg)
+            result["club_workout"] += 1
+        return status
+    r = messages.next_repeat(list(loaded), n, m["repeat_n"])      # номер не двигаем
+    if r is None:
+        return await messages.say(bot, tg, texts.CLUB_MISSING)
+    status = await messages.send_club_repeat(bot, tg, r)
+    if status == sender.OK:
+        await db.club_set_repeat(tg, r)
+        result["club_repeat"] += 1
+    return status
 
 
 async def live_members():
-    """Кто ходит на эфиры: тариф «Онлайн» (3x)."""
+    """Кто ходит на эфиры: тариф «3 раза в неделю» (3x)."""
     return [m for m in await db.club_members_active() if m["plan"] != "6x"]
 
 
@@ -110,20 +161,7 @@ async def run_club(bot: Bot, now: datetime, blocked: set[int],
         if not await db.claim_send(tg, key):
             continue
         handled.add(tg)
-        if n not in loaded:                      # новой нет — повтор пройденной (номер не двигаем)
-            r = messages.next_repeat(list(loaded), n, m["repeat_n"])
-            if r is None:
-                status = await messages.say(bot, tg, texts.CLUB_MISSING)
-            else:
-                status = await messages.send_club_repeat(bot, tg, r)
-                if status == sender.OK:
-                    await db.club_set_repeat(tg, r)
-                    result["club_repeat"] += 1
-        else:
-            status = await messages.send_club_workout(bot, tg, n)
-            if status == sender.OK:
-                await db.club_advance(tg)
-                result["club_workout"] += 1
+        status = await deliver_next(bot, m, loaded, result)
         if status == sender.FAILED:
             await db.release_send(tg, key)
         elif status == sender.BLOCKED:

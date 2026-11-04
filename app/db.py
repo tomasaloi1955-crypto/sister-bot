@@ -335,6 +335,10 @@ async def slot_counts() -> dict:
     return {r["slot"]: (r["all_n"], r["club_n"]) for r in rows}
 
 
+async def already_sent_any(key: str) -> bool:
+    return await _p().fetchval("SELECT EXISTS (SELECT 1 FROM sends WHERE key = $1)", key)
+
+
 async def get_setting(key: str) -> str | None:
     return await _p().fetchval("SELECT value FROM settings WHERE key = $1", key)
 

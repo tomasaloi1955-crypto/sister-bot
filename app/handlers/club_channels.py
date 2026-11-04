@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import html
 import logging
+from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 
 from aiogram import Bot, F, Router
 from aiogram.filters import Command, StateFilter
@@ -22,7 +24,7 @@ log = logging.getLogger(__name__)
 router = Router(name="club_channels")
 admin_only = F.from_user.id.in_(config.ADMIN_IDS)
 
-PLAN_LABELS = {"3x": "🌿 Клуб «Онлайн»", "6x": "🎬 Клуб «Записи»", "none": "📣 Не клуб"}
+PLAN_LABELS = {"3x": "🌿 Клуб «3 раза в неделю»", "6x": "🔥 Клуб «6 раз в неделю»", "none": "📣 Не клуб"}
 IN_CHANNEL = {"member", "restricted"}        # админы и создатель — не покупательницы
 
 
@@ -91,6 +93,18 @@ async def club_here(message: Message, bot: Bot) -> None:
         await message.delete()                    # чтобы команда не висела в группе
     except Exception:
         pass
+
+
+@router.message(F.video_chat_started)
+@router.channel_post(F.video_chat_started)
+async def video_chat_started(message: Message) -> None:
+    """В канале/группе клуба начался видеочат — эфир идёт, запись вместо него не шлём."""
+    plans = {r["chat_id"]: r["plan"] for r in await db.club_channels()}
+    if plans.get(message.chat.id) not in config.PLANS and any(p in config.PLANS for p in plans.values()):
+        return                                   # видеочат не в клубе
+    today = datetime.now(timezone.utc).astimezone(ZoneInfo(config.DEFAULT_TZ)).date()
+    await db.set_setting(f"live_started:{today}", "1")
+    log.info("Эфир начался в «%s»", message.chat.title)
 
 
 @router.message(F.chat.type == "private", admin_only, Command("channels"))
