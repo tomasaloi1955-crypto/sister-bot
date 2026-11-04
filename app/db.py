@@ -540,11 +540,13 @@ async def segment_ids(segment: str) -> list[int]:
 
 async def reweek_ids() -> list[int]:
     """Кому предложить бесплатную неделю: нажали /start, но анкету не прошли —
-    в воронку не попали. Кто уже в воронке, не купил ли клуб — не трогаем."""
+    в воронку не попали. Разово: кто уже получал предложение — больше не получит.
+    Кто уже в воронке или купил клуб — не трогаем."""
     rows = await _p().fetch(
         """SELECT u.tg_id FROM users u
            WHERE u.started_at IS NULL AND u.paid_at IS NULL AND NOT u.blocked AND NOT u.unsubscribed
-             AND NOT EXISTS (SELECT 1 FROM club_members m WHERE m.tg_id = u.tg_id AND m.active)""")
+             AND NOT EXISTS (SELECT 1 FROM club_members m WHERE m.tg_id = u.tg_id AND m.active)
+             AND NOT EXISTS (SELECT 1 FROM sends s WHERE s.tg_id = u.tg_id AND s.key LIKE 'reweek%')""")
     return [r["tg_id"] for r in rows]
 
 

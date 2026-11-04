@@ -457,7 +457,8 @@ async def reweek(message: Message, state: FSMContext) -> None:
     await message.answer(
         "Предложение «неделя бесплатных тренировок в записи» получат те, кто нажал /start, "
         "но не прошёл анкету (в воронку не попал), не отписался и не заблокировал бота. "
-        f"Кто уже в воронке, его не получит. Получательниц: <b>{len(ids)}</b>.\n\n"
+        "Кто уже в воронке или уже получал это предложение, его не получит — оно разовое. "
+        f"Получательниц: <b>{len(ids)}</b>.\n\n"
         "Так выглядит сообщение 👇")
     await message.answer(texts.REWEEK_OFFER.format(name=messages.name_of(None)),
                          reply_markup=keyboards.reweek())
@@ -477,9 +478,9 @@ async def reweek_confirm(cb: CallbackQuery, bot: Bot) -> None:
 
 
 async def _run_reweek(bot: Bot, admin_id: int) -> None:
-    """Каждой — одно предложение в день (ключ в журнале sends), даже если
-    нажать «Отправить» дважды. Перед отправкой — проверка канала клуба."""
-    key = f"reweek:{datetime.now(timezone.utc).date()}"
+    """Разово: каждой — одно предложение за всё время (ключ в журнале sends),
+    сколько бы раз ни запускали /reweek. Перед отправкой — проверка канала клуба."""
+    key = "reweek"
     counts = {sender.OK: 0, sender.BLOCKED: 0, sender.FAILED: 0, "in_club": 0, "dup": 0}
     for tg_id in await db.reweek_ids():
         if await payments.club_plan_by_membership(bot, tg_id):
@@ -498,7 +499,7 @@ async def _run_reweek(bot: Bot, admin_id: int) -> None:
     await bot.send_message(
         admin_id, f"✅ Предложение недели разослано: доставлено {counts['ok']}, "
                   f"заблокировали бота {counts['blocked']}, ошибок {counts['failed']}, "
-                  f"уже в клубе {counts['in_club']}, сегодня уже получали {counts['dup']}.")
+                  f"уже в клубе {counts['in_club']}, уже получали раньше {counts['dup']}.")
 
 
 # ─────────────────────────────── отзывы ───────────────────────────────
