@@ -29,7 +29,7 @@ HELP = (
     "/stats — статистика и источники\n"
     "/upload 2 — загрузить тренировку №2 бесплатной недели (всего 3)\n"
     "/live — расписание живых эфиров клуба: /live пн ср пт 19:00, /live link …, /live skip, /live off\n"
-    "Тренировка клуба в записи (тариф «Онлайн + записи»): просто пришлите видео — номер бот даст сам\n"
+    "Тренировка в записи (тариф «Записи»): просто пришлите видео — номер бот даст сам\n"
     "/upload_club 5 — заменить тренировку клуба №5\n"
     "/repeat on — вы на отдыхе: бот сразу шлёт повторы пройденного; /repeat off — снова новые\n"
     "/workouts — какие тренировки загружены\n"
@@ -276,7 +276,6 @@ async def _live_status() -> str:
     live = await messages.live_schedule()
     link = await messages.live_link()
     nxt = funnel.next_live(live, datetime.now(timezone.utc))
-    rec = ", ".join(funnel.WEEKDAYS[d].capitalize() for d in sorted(funnel.record_days(live.days)))
     slots = await db.slot_counts()
     day, eve = slots.get("day", (0, 0)), slots.get("evening", (0, 0))
     return (
@@ -284,7 +283,7 @@ async def _live_status() -> str:
         f"Когда: {messages.live_text(live)}\n"
         + (f"Ближайший: {nxt:%d.%m} в {nxt:%H:%M}\n" if nxt else "")
         + "Ссылка на эфир: " + (link or "не указана — сёстры увидят «заходи в группу клуба»") + "\n"
-        f"Тренировки в записи («Онлайн + записи»): {rec or '—'}\n\n"
+        "Напоминания получает тариф «Онлайн»; тарифу «Записи» эфиры не приходят.\n\n"
         "Сёстрам удобнее (по анкете):\n"
         f"• {texts.SLOTS.get('day', 'днём')}: {day[0]} всего, из них в клубе {day[1]}\n"
         f"• {texts.SLOTS.get('evening', 'вечером')}: {eve[0]} всего, из них в клубе {eve[1]}\n\n"
@@ -305,7 +304,7 @@ async def _live_skip(message: Message, bot: Bot) -> None:
     skip = {d for d in live.skip if d >= today} | {start.date().isoformat()}
     await db.set_setting("live_skip", " ".join(sorted(skip)))
     nxt = funnel.next_live(await messages.live_schedule(), now)
-    members = await db.club_members_active()
+    members = [m for m in await db.club_members_active() if m["plan"] != "6x"]
     await message.answer(f"Эфир {start:%d.%m} в {start:%H:%M} отменён, предупреждаю сестёр ({len(members)}).")
 
     async def notify() -> None:
@@ -551,7 +550,7 @@ async def grant(message: Message, command: CommandObject, bot: Bot) -> None:
     plan = f"{args[1]}x" if len(args) > 1 else config.DEFAULT_PLAN
     if not args or not args[0].isdigit() or plan not in config.PLANS:
         await message.answer("Формат: <code>/grant 123456789 3</code> или <code>/grant 123456789 6</code>\n"
-                             "(Telegram id участницы из /export; 3 — «Онлайн», 6 — «Онлайн + записи»)")
+                             "(Telegram id участницы из /export; 3 — «Онлайн», 6 — «Записи»)")
         return
     tg_id = int(args[0])
     await db.add_payment(tg_id, "manual", None, None, None, "paid", {"by": message.from_user.id, "plan": plan})
@@ -586,7 +585,7 @@ async def route_cmd(message: Message, command: CommandObject) -> None:
         route = ROUTE_ALIASES.get(args[1].lower()) or (f"url:{args[1]}" if args[1].startswith("https://") else None)
     if route is None:
         await message.answer("Формат: <code>/route 12345 school</code>\n"
-                             "Вместо school: 3 (клуб «Онлайн»), 6 (клуб «Онлайн + записи»), ignore или адрес https://…")
+                             "Вместо school: 3 (клуб «Онлайн»), 6 (клуб «Записи»), ignore или адрес https://…")
         return
     await db.set_product_route(args[0], route)
     await message.answer(f"✅ Товар {html.escape(args[0])} → {html.escape(tribute_router.route_name(route))}")

@@ -117,7 +117,7 @@ def payment_check(pid: int) -> InlineKeyboardMarkup:
 def product_route(key: str) -> InlineKeyboardMarkup:
     return _kb([[B(text="🏫 Школа", callback_data=f"adm:rt:school:{key}")],
                 [B(text="🌿 Клуб «Онлайн»", callback_data=f"adm:rt:club3x:{key}"),
-                 B(text="🔥 Онлайн + записи", callback_data=f"adm:rt:club6x:{key}")],
+                 B(text="🎬 Клуб «Записи»", callback_data=f"adm:rt:club6x:{key}")],
                 [B(text="🚫 Ничей", callback_data=f"adm:rt:ignore:{key}")]])
 
 

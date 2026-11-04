@@ -91,29 +91,19 @@ def test_bad_timezone_falls_back():
     assert funnel.funnel_day(START, at(3, 12), "Mars/Base") == 3
 
 
-def test_club_records_only_6x_on_days_without_live():
-    # 1 октября 2026 — четверг. Эфиры Пн/Ср/Пт → записи Вт/Чт/Сб, Вс — отдых.
-    assert START.weekday() == 3
-    def deliveries(plan, live_days=frozenset({0, 2, 4})):
-        return [(d, funnel.club_keys(START, "Asia/Almaty", plan, "day", at(d, 12), live_days))
-                for d in range(1, 15)]
-    assert all(ks == [] for _, ks in deliveries("3x"))              # 3x — только эфиры
+def test_club_records_only_6x():
+    def deliveries(plan):
+        return [funnel.club_keys(START, "Asia/Almaty", plan, "day", at(d, 12)) for d in range(1, 15)]
+    assert all(ks == [] for ks in deliveries("3x"))                 # «Онлайн» — только эфиры
     six = deliveries("6x")
-    # Чт(0) Пт-досылка(0) Сб(2) Вс-досылка(2) Пн — нет (вчера отдых) Вт(5) Ср-досылка(5) …
-    assert [ks for _, ks in six][:7] == [["club:0:day"], ["club:0:day"], ["club:2:day"], ["club:2:day"],
-                                         [], ["club:5:day"], ["club:5:day"]]
-    assert {k for _, ks in six for k in ks} == {f"club:{i}:day" for i in (0, 2, 5, 7, 9, 12)}
+    # 6 дней подряд от покупки, 7-й — отдых (в него досылка 6-го, если не ушла)
+    assert six[:8] == [[f"club:{i}:day"] for i in (0, 1, 2, 3, 4, 5, 5, 7)]
+    assert {k for ks in six for k in ks} == {f"club:{i}:day" for i in (0, 1, 2, 3, 4, 5, 7, 8, 9, 10, 11, 12)}
     assert funnel.club_keys(START, "Asia/Almaty", "6x", "day", at(1, 10)) == []        # до 11:00 — рано
     assert funnel.club_keys(START, "Asia/Almaty", "6x", "day", at(1, 22)) == []        # тихий час
-    assert funnel.club_delivers_on(START, "Asia/Almaty", "6x", at(1, 12))              # Чт — запись
-    assert not funnel.club_delivers_on(START, "Asia/Almaty", "6x", at(1, 12), ahead=1)  # Пт — эфир
+    assert funnel.club_delivers_on(START, "Asia/Almaty", "6x", at(1, 12))
+    assert not funnel.club_delivers_on(START, "Asia/Almaty", "6x", at(7, 12))           # день отдыха
     assert not funnel.club_delivers_on(START, "Asia/Almaty", "3x", at(1, 12))
-
-
-def test_record_days():
-    assert funnel.record_days({0, 2, 4}) == {1, 3, 5}
-    assert funnel.record_days({1, 3, 5}) == {0, 2, 4}
-    assert funnel.record_days({0, 2, 6}) == {1, 3, 4, 5}
 
 
 def test_parse_live():

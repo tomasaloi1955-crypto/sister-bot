@@ -22,7 +22,7 @@ log = logging.getLogger(__name__)
 router = Router(name="club_channels")
 admin_only = F.from_user.id.in_(config.ADMIN_IDS)
 
-PLAN_LABELS = {"3x": "🌿 Клуб «Онлайн»", "6x": "🔥 Клуб «Онлайн + записи»", "none": "📣 Не клуб"}
+PLAN_LABELS = {"3x": "🌿 Клуб «Онлайн»", "6x": "🎬 Клуб «Записи»", "none": "📣 Не клуб"}
 IN_CHANNEL = {"member", "restricted"}        # админы и создатель — не покупательницы
 
 

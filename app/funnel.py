@@ -112,9 +112,10 @@ def plan(p: Person, now: datetime) -> list[Action]:
 
 
 # ─────────────────────────────── клуб ───────────────────────────────
-# Оба тарифа: 3 живых эфира в неделю в группе клуба (дни и время — /live).
-# Тариф 6x вдобавок получает лично от бота тренировку в записи в остальные дни
-# недели (кроме воскресенья — отдых). Тариф 3x записей лично не получает.
+# Тариф 3x «Онлайн» — 3 живых эфира в неделю в группе клуба (дни и время — /live),
+# бот только напоминает. Тариф 6x «Записи» — эфиров нет: бот лично присылает
+# тренировку в записи 6 дней из 7 (неделя — от дня покупки), видео удаляется
+# через MEDIA_TTL_HOURS.
 WEEKDAYS = ("пн", "вт", "ср", "чт", "пт", "сб", "вс")
 _DAY_NAMES = ("понедельник", "вторник", "среда", "четверг", "пятница", "суббота", "воскресенье")
 REST_WEEKDAY = 6                                        # воскресенье
@@ -156,14 +157,6 @@ def parse_time(text: str) -> tuple[int, int] | None:
     return (h, m) if 0 <= h < 24 and 0 <= m < 60 else None
 
 
-def record_days(live_days) -> set[int]:
-    """Дни тренировок в записи для тарифа 6x: всё, что не эфир и не отдых."""
-    rest = set(range(7)) - set(live_days)
-    if len(rest) > 3:
-        rest.discard(REST_WEEKDAY)
-    return rest
-
-
 def live_start(live: Live, day) -> datetime:
     """Начало эфира в этот день (время — по часовому поясу тренера, DEFAULT_TZ)."""
     return datetime(day.year, day.month, day.day, live.hour, live.minute, tzinfo=zone(config.DEFAULT_TZ))
@@ -198,35 +191,30 @@ def next_live(live: Live, now: datetime) -> datetime | None:
     return None
 
 
-def _club_day(started_at: datetime, tz: str, now: datetime, ahead: int = 0):
-    local = now.astimezone(zone(tz))
-    return funnel_day(started_at, now, tz) - 1 + ahead, (local + timedelta(days=ahead)).date().weekday()
+# Тренировки в записи — только тариф 6x. Неделя считается от дня покупки (день 0):
+CLUB_WEEK = {"6x": {0, 1, 2, 3, 4, 5}}                  # день 6 — отдых
 
 
-def club_keys(started_at: datetime, tz: str, plan: str, slot: str | None, now: datetime,
-              live_days=Live().days) -> list[str]:
-    """Ключи рассылки тренировок клуба в записи (только тариф 6x), положенные
-    сейчас. В день без записи после дня с записью — тот же ключ ещё раз:
-    досылка, если вчера не ушло (журнал sends не даст прислать дважды)."""
-    if plan != "6x":
-        return []
+def club_keys(started_at: datetime, tz: str, plan: str, slot: str | None, now: datetime) -> list[str]:
+    """Ключи рассылки тренировок в записи, положенные сейчас (для журнала sends).
+    В день отдыха после тренировочного — тот же ключ ещё раз: досылка, если
+    вчера не ушло (журнал sends не даст прислать дважды)."""
+    days = CLUB_WEEK.get(plan)
     local = now.astimezone(zone(tz))
-    if local.hour >= config.QUIET_HOUR:
+    if not days or local.hour >= config.QUIET_HOUR:
         return []
-    days = record_days(live_days)
-    i, wd = _club_day(started_at, tz, now)
+    i = funnel_day(started_at, now, tz) - 1
     out = []
     for s in slots_of(slot):
         if local.hour < slot_hour(s):
             continue
-        if wd in days:
+        if i % 7 in days:
             out.append(f"club:{i}:{s}")
-        elif i >= 1 and (wd - 1) % 7 in days:
+        elif i >= 1 and (i - 1) % 7 in days:
             out.append(f"club:{i - 1}:{s}")
     return out
 
 
-def club_delivers_on(started_at: datetime, tz: str, plan: str, now: datetime, ahead: int = 0,
-                     live_days=Live().days) -> bool:
-    i, wd = _club_day(started_at, tz, now, ahead)
-    return plan == "6x" and i >= 0 and wd in record_days(live_days)
+def club_delivers_on(started_at: datetime, tz: str, plan: str, now: datetime, ahead: int = 0) -> bool:
+    i = funnel_day(started_at, now, tz) - 1 + ahead
+    return i >= 0 and i % 7 in CLUB_WEEK.get(plan, set())

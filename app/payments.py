@@ -1,6 +1,6 @@
 """Оплата клуба: Tribute (вебхук), Telegram Stars, ручная проверка «Я оплатила».
 
-Тарифа два (config.PLANS): 3x — 3 живых эфира в неделю, 6x — эфиры + 3 тренировки в записи. Тариф
+Тарифа два (config.PLANS): 3x «Онлайн» — 3 живых эфира в неделю, 6x «Записи» — 6 тренировок в записи. Тариф
 оплаты пишется в payments.raw->>'plan'; по нему выбирается канал клуба.
 """
 from __future__ import annotations
@@ -12,7 +12,7 @@ from datetime import datetime, timedelta, timezone
 
 from aiogram import Bot
 
-from . import config, db, funnel, keyboards, messages, texts
+from . import config, db, keyboards, messages, texts
 
 log = logging.getLogger(__name__)
 
@@ -55,12 +55,11 @@ async def start_club(bot: Bot, tg_id: int, plan: str | None) -> None:
     if await db.club_activate(tg_id, plan):
         u = await db.get_user(tg_id)
         live = await messages.live_schedule()
-        rec = ", ".join(funnel.WEEKDAYS[d].capitalize() for d in sorted(funnel.record_days(live.days)))
         what = texts.CLUB_WHAT[plan].format(
-            live=messages.live_text(live), rec=rec,
+            live=messages.live_text(live),
             time=texts.SLOTS.get((u["slot"] if u else None) or "evening", texts.SLOTS["evening"]))
-        await messages.say(bot, tg_id, texts.CLUB_START.format(name=messages.name_of(u), what=what),
-                           keyboards.live(await messages.live_link()))
+        await messages.say(bot, tg_id, texts.CLUB_START[plan].format(name=messages.name_of(u), what=what),
+                           keyboards.live(await messages.live_link()) if plan == "3x" else None)
 
 
 async def grant_access(bot: Bot, tg_id: int, plan: str | None, via_tribute: bool = False) -> None:
