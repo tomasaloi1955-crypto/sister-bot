@@ -31,6 +31,7 @@ HELP = (
     "/live — эфиры «3 раза в неделю»: /live ср пт вс 19:00, /live rec — сегодня по записи, /live link …, /live off\n"
     "Тренировка в записи: просто пришлите видео — номер бот даст сам\n"
     "/upload_club 5 — заменить тренировку клуба №5\n"
+    "/tofree 8 1 — поставить тренировку клуба №8 вместо тренировки №1 бесплатной недели\n"
     "/repeat on — вы на отдыхе: бот сразу шлёт повторы пройденного; /repeat off — снова новые\n"
     "/channels — каналы и группы клуба: какая группа к какому тарифу (поменять кнопкой)\n"
     "/clubhere — написать в группе: бот спросит в личке, чья это группа\n"
@@ -229,6 +230,36 @@ async def club_video_undo(cb: CallbackQuery) -> None:
     else:
         await cb.answer("Уже нельзя: её получили сёстры или после неё загружены другие. "
                         "Заменить: /upload_club " + str(n), show_alert=True)
+
+
+@router.message(Command("tofree"))
+async def to_free(message: Message, command: CommandObject, bot: Bot) -> None:
+    """/tofree 8 1 — видео и текст тренировки клуба №8 становятся тренировкой №1
+    бесплатной недели. Без заново загруженного видео: берём уже присланное."""
+    parts = (command.args or "").split()
+    if len(parts) != 2 or not all(x.isdigit() for x in parts) or not 1 <= int(parts[1]) <= funnel.WORKOUTS:
+        lines = []
+        for r in await db.recent_club_workouts():
+            when = r["updated_at"].astimezone(funnel.zone(config.DEFAULT_TZ)).strftime("%d.%m %H:%M")
+            about = html.escape((r["text"] or "").split("\n", 1)[0][:40]) or "без текста"
+            lines.append(f"№{r['n']} — {when}{'' if r['has_video'] else ' (без видео)'} — {about}")
+        await message.answer(
+            "Формат: <code>/tofree 8 1</code> — тренировка клуба №8 станет тренировкой №1 "
+            f"бесплатной недели (номера 1–{funnel.WORKOUTS}).\n\n"
+            "<b>Последние тренировки клуба</b> (номер — когда загружена):\n"
+            + ("\n".join(lines) or "пока нет")
+            + "\n\nПосмотреть любую: <code>/show 2</code> — бесплатная неделя.")
+        return
+    n, day = int(parts[0]), int(parts[1])
+    w = await db.get_club_workout(n)
+    if w is None:
+        await message.answer(f"Тренировки клуба №{n} нет. Список — /tofree")
+        return
+    await db.replace_workout(day, w["video"], w["text"])
+    log.info("Бесплатная неделя: тренировка №%s ← клуб №%s", day, n)
+    await message.answer(f"✅ Тренировка №{day} бесплатной недели теперь — клуб №{n}. "
+                         "Кто ещё не получил №{day}, получит новую. Вот как увидит участница:".replace("{day}", str(day)))
+    await messages.send_workout(bot, message.from_user.id, day, "day", track=False)
 
 
 @router.message(Command("repeat"))

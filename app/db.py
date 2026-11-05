@@ -247,6 +247,21 @@ async def save_workout(day: int, slot: str, video: str | None, text: str) -> Non
         day, slot, video, text)
 
 
+async def replace_workout(day: int, video: str | None, text: str) -> None:
+    """Заменить тренировку бесплатной недели целиком: старые варианты «днём» и
+    «вечером» убираем, чтобы никому не пришло прежнее видео."""
+    async with _p().acquire() as con, con.transaction():
+        await con.execute("DELETE FROM workouts WHERE day = $1", day)
+        await con.execute("INSERT INTO workouts (day, slot, video, text) VALUES ($1, 'day', $2, $3)",
+                          day, video, text)
+
+
+async def recent_club_workouts(limit: int = 6) -> list[asyncpg.Record]:
+    return await _p().fetch(
+        "SELECT n, video IS NOT NULL AS has_video, text, updated_at FROM club_workouts ORDER BY n DESC LIMIT $1",
+        limit)
+
+
 async def workout_days() -> set[int]:
     """Дни, на которые загружена хоть одна тренировка."""
     return {r["day"] for r in await _p().fetch("SELECT DISTINCT day FROM workouts")}
