@@ -170,7 +170,7 @@ async def upload_video(message: Message, state: FSMContext, bot: Bot) -> None:
     await message.answer("Видео есть. Теперь пришли текст тренировки (или «-» — без текста).")
 
 
-@router.message(Upload.content, F.text)
+@router.message(Upload.content, F.text, ~F.text.startswith("/"))
 async def upload_text_only(message: Message, state: FSMContext, bot: Bot) -> None:
     first, _, rest = message.text.partition("\n")
     if first.strip().startswith("http"):
@@ -185,7 +185,7 @@ def _html_rest(message: Message, rest: str) -> str:
     return full.split("\n", 1)[1].strip() if "\n" in full else html.escape(rest.strip())
 
 
-@router.message(Upload.text, F.text)
+@router.message(Upload.text, F.text, ~F.text.startswith("/"))
 async def upload_text(message: Message, state: FSMContext, bot: Bot) -> None:
     data = await state.get_data()
     text = "" if message.text.strip() == "-" else message.html_text
@@ -412,7 +412,7 @@ async def broadcast_segment(cb: CallbackQuery, state: FSMContext) -> None:
                             "Пришли сообщение для рассылки (текст, фото, видео — что угодно). /cancel — отмена.")
 
 
-@router.message(Broadcast.message)
+@router.message(Broadcast.message, ~F.text.startswith("/"))   # команда — не текст рассылки
 async def broadcast_message(message: Message, state: FSMContext) -> None:
     data = await state.get_data()
     ids = await db.segment_ids(data["segment"])
@@ -457,7 +457,8 @@ async def reweek(message: Message, state: FSMContext) -> None:
     await message.answer(
         "Предложение «неделя бесплатных тренировок в записи» получат те, кто нажал /start, "
         "но не прошёл анкету (в воронку не попал), не отписался и не заблокировал бота. "
-        f"Кто уже в воронке, его не получит. Получательниц: <b>{len(ids)}</b>.\n\n"
+        "Кто уже в воронке или уже получал это предложение, его не получит — оно разовое. "
+        f"Получательниц: <b>{len(ids)}</b>.\n\n"
         "Так выглядит сообщение 👇")
     await message.answer(texts.REWEEK_OFFER.format(name=messages.name_of(None)),
                          reply_markup=keyboards.reweek())
@@ -477,9 +478,9 @@ async def reweek_confirm(cb: CallbackQuery, bot: Bot) -> None:
 
 
 async def _run_reweek(bot: Bot, admin_id: int) -> None:
-    """Каждой — одно предложение в день (ключ в журнале sends), даже если
-    нажать «Отправить» дважды. Перед отправкой — проверка канала клуба."""
-    key = f"reweek:{datetime.now(timezone.utc).date()}"
+    """Разово: каждой — одно предложение за всё время (ключ в журнале sends),
+    сколько бы раз ни запускали /reweek. Перед отправкой — проверка канала клуба."""
+    key = "reweek"
     counts = {sender.OK: 0, sender.BLOCKED: 0, sender.FAILED: 0, "in_club": 0, "dup": 0}
     for tg_id in await db.reweek_ids():
         if await payments.club_plan_by_membership(bot, tg_id):
@@ -498,7 +499,7 @@ async def _run_reweek(bot: Bot, admin_id: int) -> None:
     await bot.send_message(
         admin_id, f"✅ Предложение недели разослано: доставлено {counts['ok']}, "
                   f"заблокировали бота {counts['blocked']}, ошибок {counts['failed']}, "
-                  f"уже в клубе {counts['in_club']}, сегодня уже получали {counts['dup']}.")
+                  f"уже в клубе {counts['in_club']}, уже получали раньше {counts['dup']}.")
 
 
 # ─────────────────────────────── отзывы ───────────────────────────────
