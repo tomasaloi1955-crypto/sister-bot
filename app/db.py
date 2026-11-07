@@ -36,7 +36,8 @@ def _p() -> asyncpg.Pool:
 async def upsert_user(tg_id: int, username: str | None, first_name: str | None,
                       source: str | None) -> asyncpg.Record:
     """Создать участницу или обновить имя. Метку источника не перезаписываем:
-    засчитываем ту рекламу, которая привела первой."""
+    засчитываем ту рекламу, которая привела первой.
+    Поле inserted = true, если участница создана только что (первый /start)."""
     return await _p().fetchrow(
         """INSERT INTO users (tg_id, username, first_name, source)
            VALUES ($1, $2, $3, $4)
@@ -45,7 +46,7 @@ async def upsert_user(tg_id: int, username: str | None, first_name: str | None,
                  first_name = EXCLUDED.first_name,
                  source = COALESCE(users.source, EXCLUDED.source),
                  blocked = false
-           RETURNING *""",
+           RETURNING *, (xmax = 0) AS inserted""",
         tg_id, username, first_name, source)
 
 

@@ -32,6 +32,16 @@ def _source(payload: str | None) -> str | None:
     return payload or None
 
 
+async def _notify_new_lead(bot: Bot, u) -> None:
+    """Владелице: новая девушка нажала /start (первый раз за всё время)."""
+    who = messages.name_of(u)
+    if u["username"]:
+        who += f" @{html.escape(u['username'])}"
+    source = html.escape(u["source"] or "без метки")
+    await messages.notify_admins(
+        bot, f"🆕 Новый лид (бесплатная неделя): {who} (id {u['tg_id']}), источник: {source}")
+
+
 # ─────────────────────────────── /start и анкета ───────────────────────────────
 
 @router.message(CommandStart())
@@ -39,6 +49,8 @@ async def start(message: Message, command: CommandObject) -> None:
     fu = message.from_user
     u = await db.upsert_user(fu.id, fu.username, fu.first_name, _source(command.args))
     name = messages.name_of(u)
+    if u["inserted"]:
+        await _notify_new_lead(message.bot, u)
     if u["started_at"]:
         day = funnel.funnel_day(u["started_at"], _now(), u["tz"])
         await message.answer(texts.WELCOME_BACK.format(name=name, day=day),
