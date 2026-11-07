@@ -21,6 +21,10 @@ async def connect() -> None:
         await con.execute(SCHEMA.read_text(encoding="utf-8"))
 
 
+async def ping() -> None:
+    await _p().fetchval("SELECT 1")
+
+
 async def close() -> None:
     if pool is not None:
         await pool.close()
