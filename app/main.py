@@ -46,6 +46,7 @@ def build() -> tuple[Bot, Dispatcher]:
 
 
 _last_alert: dict[str, float] = {}
+STARTED_AT = time.time()          # запуск процесса (деплой/перезапуск) — для сторожа
 
 
 async def on_error(event: ErrorEvent, bot: Bot) -> bool:
@@ -100,7 +101,7 @@ def make_app(bot: Bot, dp: Dispatcher) -> web.Application:
     async def status(_: web.Request) -> web.Response:
         """Для сторожа (tg-promo-agent/bot_watchdog.py): работает ли Telegram, база,
         какая версия кода запущена. Без секретов — только «ок / что сломано»."""
-        out: dict = {"commit": os.environ.get("RENDER_GIT_COMMIT", "")}
+        out: dict = {"commit": os.environ.get("RENDER_GIT_COMMIT", ""), "started_at": int(STARTED_AT)}
         try:
             me = await bot.get_me()
             out["telegram"] = "ok"
