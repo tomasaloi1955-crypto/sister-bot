@@ -22,6 +22,7 @@ from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_applicati
 from aiohttp import web
 
 from . import config, db, messages, payments, tick, tribute_router
+from .safe_answer import IgnoreStaleCallback
 from .handlers import admin, channel, club_channels, health, user
 
 logging.basicConfig(level=logging.INFO,
@@ -32,6 +33,7 @@ WEBHOOK_PATH = "/webhook"
 
 def build() -> tuple[Bot, Dispatcher]:
     bot = Bot(config.BOT_TOKEN, default=DefaultBotProperties(parse_mode="HTML"))
+    bot.session.middleware(IgnoreStaleCallback())   # просроченное нажатие кнопки не обрывает анкету
     dp = Dispatcher(storage=MemoryStorage())
     dp.include_router(club_channels.router)   # пересланный пост из канала — раньше шагов админки
     dp.include_router(admin.router)      # админка первой: её шаги (/upload …) важнее «свободного текста»
