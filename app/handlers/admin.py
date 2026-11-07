@@ -42,6 +42,7 @@ HELP = (
     "/reviews — модерация отзывов\n"
     "/list — последние 30 сестёр: id, день, сколько сделала, купила ли\n"
     "/who 123456789 — где сейчас сестра: анкета, тренировки, оплата\n"
+    "/testme — сбросить СВОЮ бесплатную неделю, чтобы пройти анкету заново (проверка)\n"
     "/purge 123456789 — убрать у сестры из чата все видео тренировок сейчас\n"
     "/grant 123456789 3 — выдать клуб вручную (id участницы; 3 или 6 — тариф)\n"
     "/export — выгрузка участниц в CSV\n"
@@ -604,6 +605,15 @@ async def people_list(message: Message) -> None:
         marks = ("💰" if r["paid_at"] else "") + ("⛔" if r["blocked"] else "") + ("🔕" if r["unsubscribed"] else "")
         lines.append(f"• {name} — <code>{r['tg_id']}</code> — {where} {marks}".rstrip())
     await message.answer("\n".join(lines))
+
+
+@router.message(Command("testme"))
+async def testme(message: Message, state: FSMContext) -> None:
+    """Проверка воронки на себе: сбрасываем только свою анкету и неделю."""
+    await state.clear()
+    await db.reset_own_week(message.from_user.id)
+    await message.answer("🔄 Ваша бесплатная неделя сброшена. Нажмите /start — анкета начнётся заново, "
+                         "как у новой сестры (уведомления «Новый лид» не будет).")
 
 
 @router.message(Command("who"))

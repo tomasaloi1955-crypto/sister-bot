@@ -50,6 +50,18 @@ async def upsert_user(tg_id: int, username: str | None, first_name: str | None,
         tg_id, username, first_name, source)
 
 
+async def reset_own_week(tg_id: int) -> None:
+    """/testme: админ проходит бесплатную неделю заново — анкета, здоровье, отметки,
+    журнал отправок. Оплаты, клуб и метка источника не трогаются."""
+    async with _p().acquire() as con, con.transaction():
+        for table in ("sends", "completions", "feedback", "health"):
+            await con.execute(f"DELETE FROM {table} WHERE tg_id = $1", tg_id)
+        await con.execute(
+            """UPDATE users SET goal = NULL, level = NULL, slot = NULL, started_at = NULL,
+                      first_now = false, awaiting_feedback_day = NULL, unsubscribed = false
+               WHERE tg_id = $1""", tg_id)
+
+
 async def get_user(tg_id: int) -> asyncpg.Record | None:
     return await _p().fetchrow("SELECT * FROM users WHERE tg_id = $1", tg_id)
 
