@@ -214,6 +214,16 @@ async def _settings_text(u) -> str:
     return texts.SETTINGS.format(slot=slot, tz=tz, subscribed=subscribed)
 
 
+@router.message(Command("testme"))
+async def testme_not_admin(message: Message) -> None:
+    """/testme у админа ловит admin.router раньше; сюда попадают все остальные."""
+    await message.answer(
+        "Эта команда — только для админа бота. Ваш id: "
+        f"<code>{message.from_user.id}</code>.\n\nЧтобы проверять бота с этого аккаунта, "
+        "добавьте этот id в Render → sister-bot → Environment → <code>ADMIN_IDS</code> "
+        "(через запятую), Save — и через пару минут /testme заработает.")
+
+
 @router.message(Command("settings"))
 async def settings(message: Message) -> None:
     u = await db.get_user(message.from_user.id)
