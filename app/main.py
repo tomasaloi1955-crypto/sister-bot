@@ -7,17 +7,21 @@ from __future__ import annotations
 
 import asyncio
 import hmac
+import html
 import logging
+import os
 import sys
+import time
+import traceback
 
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.types import BotCommand
+from aiogram.types import BotCommand, ErrorEvent
 from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
 from aiohttp import web
 
-from . import config, db, payments, tick, tribute_router
+from . import config, db, messages, payments, tick, tribute_router
 from .handlers import admin, channel, club_channels, health, user
 
 logging.basicConfig(level=logging.INFO,
@@ -34,7 +38,37 @@ def build() -> tuple[Bot, Dispatcher]:
     dp.include_router(channel.router)
     dp.include_router(health.router)
     dp.include_router(user.router)
+    dp.errors.register(on_error)
     return bot, dp
+
+
+_last_alert: dict[str, float] = {}
+
+
+async def on_error(event: ErrorEvent, bot: Bot) -> bool:
+    """Ошибка при ответе сестре — сестра «застревает». Сразу пишем админам
+    (одна и та же ошибка — не чаще раза в 30 минут)."""
+    exc = event.exception
+    log.exception("Ошибка в обработчике", exc_info=exc)
+    upd = event.update
+    who, what = "", ""
+    if upd.message:
+        who, what = upd.message.from_user, f"сообщение «{(upd.message.text or '')[:50]}»"
+    elif upd.callback_query:
+        who, what = upd.callback_query.from_user, f"кнопка «{upd.callback_query.data}»"
+    where = "".join(traceback.format_tb(exc.__traceback__)[-1:]).strip().splitlines()[0][:200]
+    key = f"{type(exc).__name__}:{where}"
+    now = time.monotonic()
+    if now - _last_alert.get(key, -1e9) < 1800:
+        return True
+    _last_alert[key] = now
+    person = (f"{html.escape(who.first_name or '')} (id {who.id})" if who else "—")
+    await messages.notify_admins(
+        bot, "⚠️ <b>Ошибка в боте</b> — сестра могла застрять.\n"
+             f"Кто: {person}\nЧто нажала: {html.escape(what) or '—'}\n"
+             f"Ошибка: <code>{html.escape(type(exc).__name__)}: {html.escape(str(exc)[:300])}</code>\n"
+             f"<code>{html.escape(where)}</code>\n\nПерешлите это сообщение Claude — починю.")
+    return True
 
 
 async def on_startup(bot: Bot, dp: Dispatcher, webhook: bool) -> None:
@@ -59,6 +93,29 @@ def make_app(bot: Bot, dp: Dispatcher) -> web.Application:
 
     async def health(_: web.Request) -> web.Response:
         return web.Response(text="ok")
+
+    async def status(_: web.Request) -> web.Response:
+        """Для сторожа (tg-promo-agent/bot_watchdog.py): работает ли Telegram, база,
+        какая версия кода запущена. Без секретов — только «ок / что сломано»."""
+        out: dict = {"commit": os.environ.get("RENDER_GIT_COMMIT", "")}
+        try:
+            me = await bot.get_me()
+            out["telegram"] = "ok"
+            out["username"] = me.username
+            info = await bot.get_webhook_info()
+            out["pending"] = info.pending_update_count
+            out["webhook_set"] = bool(info.url)
+            if info.last_error_date:
+                out["webhook_error_at"] = int(info.last_error_date.timestamp())
+                out["webhook_error"] = (info.last_error_message or "")[:200]
+        except Exception as e:                      # чаще всего — неверный BOT_TOKEN
+            out["telegram"] = f"{type(e).__name__}: {str(e)[:200]}"
+        try:
+            await db.ping()
+            out["db"] = "ok"
+        except Exception as e:
+            out["db"] = f"{type(e).__name__}: {str(e)[:200]}"
+        return web.json_response(out)
 
     background: set[asyncio.Task] = set()
 
@@ -106,6 +163,7 @@ def make_app(bot: Bot, dp: Dispatcher) -> web.Application:
 
     app.router.add_get("/", health)
     app.router.add_get("/health", health)
+    app.router.add_get("/status", status)
     app.router.add_route("*", "/tick", tick_handler)
     app.router.add_post("/tribute", tribute_handler)
     SimpleRequestHandler(dispatcher=dp, bot=bot,
