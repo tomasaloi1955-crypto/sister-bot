@@ -5,7 +5,8 @@
 # Повторный тик ничего не дублирует: каждое сообщение уходит один раз.
 #
 # Нужен секрет репозитория TICK_URL (Settings → Secrets and variables
-# → Actions), например: https://sisters-bot.onrender.com/tick?key=ВАШ_TICK_KEY
+# → Actions), например: https://sister-bot.onrender.com/tick?key=ВАШ_TICK_KEY
+# Можно положить и просто ключ (значение TICK_KEY из Render) — адрес соберётся сам.
 # Пока секрета нет — будильник молча ничего не делает.
 
 name: "Бот тренировок: тик"
@@ -34,7 +35,27 @@ jobs:
             echo "Секрет TICK_URL не задан — пропускаю."
             exit 0
           fi
+          # Убираем пробелы и переводы строк, случайно попавшие при вставке.
+          URL="$(printf '%s' "$TICK_URL" | tr -d '[:space:]')"
+          case "$URL" in
+            http://*|https://*) ;;
+            *)
+              echo "В TICK_URL не адрес, а одно слово — считаю его ключом TICK_KEY."
+              URL="https://sister-bot.onrender.com/tick?key=$URL" ;;
+          esac
+          case "$URL" in */tick\?key=?*) ;; *)
+            echo "::error::В TICK_URL нет '/tick?key=…'. Нужно: https://sister-bot.onrender.com/tick?key=ВАШ_TICK_KEY"
+            exit 1 ;;
+          esac
+          echo "::add-mask::$URL"
           # Первый запрос может ждать, пока Render проснётся (до минуты).
-          curl --fail-with-body --silent --show-error \
+          code=$(curl --silent --show-error --output /tmp/tick.out --write-out '%{http_code}' \
                --retry 4 --retry-delay 20 --retry-all-errors \
-               --max-time 600 "$TICK_URL"
+               --max-time 600 "$URL") || true
+          echo "Ответ бота: HTTP $code"
+          head -c 2000 /tmp/tick.out 2>/dev/null; echo
+          case "$code" in
+            200) ;;
+            403) echo "::error::Ключ не подходит: в TICK_URL ключ не тот, что TICK_KEY в Render."; exit 1 ;;
+            *)   echo "::error::Бот не ответил как надо (HTTP $code)."; exit 1 ;;
+          esac
