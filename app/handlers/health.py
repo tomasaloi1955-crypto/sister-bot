@@ -28,17 +28,34 @@ async def ask_consent(bot: Bot, tg_id: int, onboarding: bool) -> None:
                        keyboards.health_consent())
 
 
+def first_now(u, now: datetime | None = None) -> bool:
+    """Прислать первую тренировку сразу? Да, если в анкете нажала «Прямо сейчас»
+    или выбранное время сегодня уже наступило. Иначе её пришлёт тик в это время."""
+    if u["first_now"]:
+        return True
+    slot = funnel.slots_of(u["slot"])[0]
+    local = (now or datetime.now(timezone.utc)).astimezone(funnel.zone(u["tz"]))
+    return local.hour >= funnel.slot_hour(slot)
+
+
 async def finish_onboarding(bot: Bot, u) -> None:
-    """Анкета закончена: чат + первая тренировка сразу. Ключ пишем в журнал,
-    чтобы тик не прислал ту же тренировку второй раз."""
+    """Анкета закончена: чат + первая тренировка (сразу или в выбранное время).
+    Ключ пишем в журнал, чтобы тик не прислал ту же тренировку второй раз."""
     ready = 1 in await db.workout_days()
-    # Видео 1 ещё нет — не обещаем «ниже»: тренировку пришлёт тик, когда она появится.
-    await messages.say(bot, u["tg_id"], (texts.SURVEY_DONE if ready else texts.SURVEY_DONE_WAIT).format(tz=u["tz"]))
+    slot = funnel.slots_of(u["slot"])[0]
+    now = first_now(u)
+    if not ready:
+        # Видео 1 ещё нет — не обещаем «ниже»: тренировку пришлёт тик, когда она появится.
+        text = texts.SURVEY_DONE_WAIT.format(tz=u["tz"])
+    elif now:
+        text = texts.SURVEY_DONE.format(tz=u["tz"])
+    else:
+        text = texts.SURVEY_DONE_AT.format(tz=u["tz"], time=f"{funnel.slot_hour(slot)}:00")
+    await messages.say(bot, u["tg_id"], text)
     if config.FREE_CHAT_LINK:
         await messages.say(bot, u["tg_id"], texts.FREE_CHAT.format(link=config.FREE_CHAT_LINK),
                            keyboards.free_chat())
-    slot = funnel.slots_of(u["slot"])[0]
-    if ready and await db.claim_send(u["tg_id"], f"workout:1:{slot}"):
+    if ready and now and await db.claim_send(u["tg_id"], f"workout:1:{slot}"):
         await messages.send_workout(bot, u["tg_id"], 1, slot)
 
 

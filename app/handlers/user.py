@@ -67,6 +67,16 @@ async def survey(cb: CallbackQuery, bot: Bot) -> None:
     u = await db.get_user(cb.from_user.id)
     if u is None:
         u = await db.upsert_user(cb.from_user.id, cb.from_user.username, cb.from_user.first_name, None)
+    if field == "slot" and value == "now":
+        if u["started_at"] is not None:      # старая кнопка у той, кто уже начала
+            return
+        await db.set_field(u["tg_id"], "first_now", True)
+        try:
+            await cb.message.edit_text(f"{cb.message.html_text}\n\n<b>→ {texts.SLOT_NOW}</b>")
+        except Exception:
+            pass
+        await cb.message.answer(texts.Q_SLOT_AFTER_NOW, reply_markup=keyboards.choices("q:slot", texts.SLOTS))
+        return
     options = {"goal": texts.GOALS, "level": texts.LEVELS, "slot": texts.SLOTS}
     if field not in options or value not in options[field]:
         return
@@ -79,7 +89,10 @@ async def survey(cb: CallbackQuery, bot: Bot) -> None:
         await cb.message.answer(texts.Q_LEVEL, reply_markup=keyboards.choices("q:level", texts.LEVELS))
     elif field == "level":
         await db.set_field(u["tg_id"], "level", value)
-        await cb.message.answer(texts.Q_SLOT, reply_markup=keyboards.choices("q:slot", texts.SLOTS))
+        if u["started_at"] is None:
+            await cb.message.answer(texts.Q_SLOT_FIRST, reply_markup=keyboards.first_slot())
+        else:
+            await cb.message.answer(texts.Q_SLOT, reply_markup=keyboards.choices("q:slot", texts.SLOTS))
     else:
         first_time = u["started_at"] is None
         u = await db.start_month(u["tg_id"], value)
