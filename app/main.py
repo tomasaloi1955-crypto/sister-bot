@@ -13,6 +13,7 @@ import os
 import sys
 import time
 import traceback
+from datetime import datetime, timezone
 
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
@@ -115,6 +116,11 @@ def make_app(bot: Bot, dp: Dispatcher) -> web.Application:
         try:
             await db.ping()
             out["db"] = "ok"
+            now = datetime.now(timezone.utc)
+            for src in ("cron", "github"):
+                at = await db.get_setting(f"last_tick_{src}")
+                if at:
+                    out[f"tick_{src}_min_ago"] = int((now - datetime.fromisoformat(at)).total_seconds() // 60)
         except Exception as e:
             out["db"] = f"{type(e).__name__}: {str(e)[:200]}"
         return web.json_response(out)
@@ -130,6 +136,12 @@ def make_app(bot: Bot, dp: Dispatcher) -> web.Application:
     async def tick_handler(request: web.Request) -> web.Response:
         if not _key_ok(request.query.get("key", "")):
             return web.json_response({"error": "forbidden"}, status=403)
+        # Кто разбудил: внешний будильник (cron-job.org, ?bg=1) или GitHub — видно в /status.
+        try:
+            await db.set_setting("last_tick_cron" if request.query.get("bg") else "last_tick_github",
+                                 datetime.now(timezone.utc).isoformat())
+        except Exception:
+            log.exception("Не записала время тика")
         if request.query.get("bg"):
             # Для внешних будильников (cron-job.org): короткий ответ сразу,
             # рассылка идёт в фоне — без таймаутов и больших ответов.
