@@ -13,6 +13,12 @@ def choices(prefix: str, options: dict) -> InlineKeyboardMarkup:
     return _kb([[B(text=label, callback_data=f"{prefix}:{key}")] for key, label in options.items()])
 
 
+def first_slot() -> InlineKeyboardMarkup:
+    """Вопрос о времени в анкете: «Прямо сейчас» + два времени."""
+    return _kb([[B(text=texts.SLOT_NOW, callback_data="q:slot:now")]]
+               + [[B(text=label, callback_data=f"q:slot:{key}")] for key, label in texts.SLOTS.items()])
+
+
 def done(day: int) -> InlineKeyboardMarkup:
     return _kb([[B(text=texts.DONE_BUTTON, callback_data=f"done:{day}")]])
 

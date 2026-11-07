@@ -55,7 +55,7 @@ async def get_user(tg_id: int) -> asyncpg.Record | None:
 
 
 ALLOWED_FIELDS = {"goal", "level", "slot", "tz", "unsubscribed", "blocked",
-                  "awaiting_feedback_day"}
+                  "awaiting_feedback_day", "first_now"}
 
 
 async def set_field(tg_id: int, name: str, value) -> None:

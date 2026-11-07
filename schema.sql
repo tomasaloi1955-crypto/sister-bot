@@ -21,6 +21,8 @@ CREATE TABLE IF NOT EXISTS users (
     blocked          BOOLEAN NOT NULL DEFAULT false,  -- заблокировала бота
     awaiting_feedback_day INT                  -- ждём свободный отзыв после «Как ощущения?»
 );
+-- В анкете нажала «Прямо сейчас»: первую тренировку — сразу, следующие — в slot
+ALTER TABLE users ADD COLUMN IF NOT EXISTS first_now BOOLEAN NOT NULL DEFAULT false;
 CREATE INDEX IF NOT EXISTS users_started_idx ON users (started_at);
 CREATE INDEX IF NOT EXISTS users_source_idx  ON users (source);
 
