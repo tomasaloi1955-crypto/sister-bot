@@ -629,6 +629,7 @@ async def who(message: Message, command: CommandObject) -> None:
     u, h = card["user"], card["health"]
     tz = u["tz"]
     lines = [f"<b>{messages.name_of(u)}</b>" + (f" @{html.escape(u['username'])}" if u["username"] else "")
+             + f' · <a href="tg://user?id={u["tg_id"]}">✉️ написать</a>'
              + f" (id {u['tg_id']})",
              f"Пришла: {_when(u['created_at'], tz)}, метка: {html.escape(u['source'] or '—')}"]
     if u["started_at"] is None:
