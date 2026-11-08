@@ -41,10 +41,10 @@ HELP = (
     "/reweek — предложить неделю бесплатных тренировок тем, кто нажал /start, но не прошёл анкету\n"
     "/reviews — модерация отзывов\n"
     "/list — последние 30 сестёр: id, день, сколько сделала, купила ли\n"
-    "/who 123456789 — где сейчас сестра: анкета, тренировки, оплата\n"
+    "/who 123456789 или /who @ник — где сейчас сестра: анкета, тренировки, оплата\n"
     "/testme — сбросить СВОЮ бесплатную неделю, чтобы пройти анкету заново (проверка)\n"
     "/purge 123456789 — убрать у сестры из чата все видео тренировок сейчас\n"
-    "/syncclub — найти в группах клуба сестёр, которых бот не записал в клуб (добавили руками)\n"
+    "/syncclub — кто в клубе + найти в группах клуба сестёр, которых бот не записал (добавили руками)\n"
     "/grant 123456789 3 — выдать клуб вручную (id участницы; 3 или 6 — тариф)\n"
     "/export — выгрузка участниц в CSV\n"
     "/products — товары Tribute и куда идут их оплаты\n"
@@ -619,13 +619,16 @@ async def testme(message: Message, state: FSMContext) -> None:
 
 @router.message(Command("who"))
 async def who(message: Message, command: CommandObject, bot: Bot) -> None:
-    arg = (command.args or "").strip().lstrip("@")
-    if not arg.isdigit():
-        await message.answer("Формат: <code>/who 123456789</code> (id есть в сообщении о заявке и в /export)")
+    arg = (command.args or "").strip().split("/")[-1].lstrip("@")   # можно и ссылку t.me/ник
+    if not arg:
+        await message.answer("Формат: <code>/who 123456789</code> или <code>/who @ник</code>")
         return
-    card = await db.person_card(int(arg))
+    tg_id = int(arg) if arg.isdigit() else await db.user_id_by_username(arg)
+    card = await db.person_card(tg_id) if tg_id else None
     if card is None:
-        await message.answer("Такой сестры в боте нет: она ещё ни разу не нажимала «Начать» в боте.")
+        await message.answer(f"Сестры <b>{html.escape(arg)}</b> в боте нет: с этого аккаунта ещё ни разу "
+                             "не нажимали «Начать» в боте (или она сменила ник). Попросите её открыть бота "
+                             "и нажать «Начать» — тогда бот сможет ей писать.")
         return
     u, h = card["user"], card["health"]
     tz = u["tz"]
@@ -710,17 +713,42 @@ async def syncclub(message: Message, bot: Bot) -> None:
     for title, err in broken.items():
         await message.answer(f"⚠️ Не могу проверить группу «{html.escape(title)}»: {html.escape(err)}\n"
                              "Проверьте, что бот там администратор.")
-    if not found:
-        await message.answer("Никого нового в группах клуба не нашла — все, кого я вижу, уже записаны 👍")
-        return
-    lines = []
-    for tg_id, plan in found:
-        u = await db.get_user(tg_id)
-        who = messages.name_of(u) + (f" @{html.escape(u['username'])}" if u and u["username"] else "")
-        lines.append(f"• {who} (id {tg_id}) — {payments.plan_name(plan)}")
-    await message.answer(f"✅ Записала в клуб: {len(found)}\n" + "\n".join(lines)
-                         + "\n\nКаждой бот прислал приветствие клуба, дальше — напоминания об эфирах "
-                           "или тренировки по её тарифу.")
+    if found:
+        lines = []
+        for tg_id, plan in found:
+            u = await db.get_user(tg_id)
+            who = messages.name_of(u) + (f" @{html.escape(u['username'])}" if u and u["username"] else "")
+            lines.append(f"• {who} (id {tg_id}) — {payments.plan_name(plan)}")
+        await message.answer(f"✅ Записала в клуб новых: {len(found)}\n" + "\n".join(lines)
+                             + "\n\nКаждой бот прислал приветствие клуба.")
+    else:
+        await message.answer("Новых не нашла.")
+    await send_long(message, await club_list_text())
+
+
+async def club_list_text() -> str:
+    members = await db.club_members_active()
+    out = ["<b>Сейчас в клубе</b> (бот шлёт им эфиры и тренировки):"]
+    for plan in config.PLANS:
+        group = [m for m in members if m["plan"] == plan]
+        out.append(f"\n<b>{payments.plan_name(plan)}</b> — {len(group)}:")
+        out += [f"• {messages.name_of(m)}" + (f" @{html.escape(m['username'])}" if m["username"] else "")
+                + f" (id {m['tg_id']})" for m in group] or ["• пока никого"]
+    out.append("\n<i>Кто в группе, но ни разу не нажимал «Начать» в боте, здесь не виден — "
+               "бот не может ей писать. Попросите её открыть бота и нажать «Начать», потом снова /syncclub.</i>")
+    return "\n".join(out)
+
+
+async def send_long(message: Message, text: str) -> None:
+    """Telegram принимает до 4096 знаков — длинный список шлём частями по строкам."""
+    chunk = ""
+    for line in text.split("\n"):
+        if len(chunk) + len(line) > 3800:
+            await message.answer(chunk)
+            chunk = ""
+        chunk += line + "\n"
+    if chunk.strip():
+        await message.answer(chunk)
 
 
 # ─────────────────────────────── товары Tribute ───────────────────────────────
