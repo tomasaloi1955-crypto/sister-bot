@@ -5,6 +5,8 @@
 """
 from __future__ import annotations
 
+import asyncio
+
 import hashlib
 import hmac
 import logging
@@ -77,19 +79,39 @@ async def grant_access(bot: Bot, tg_id: int, plan: str | None, via_tribute: bool
              + ("" if link or tribute_lets_in else "\n⚠️ Ссылки в канал нет — добавь её в канал вручную."))
 
 
-async def mark_club_member(bot: Bot, tg_id: int, plan: str, chat_id: int) -> None:
+async def mark_club_member(bot: Bot, tg_id: int, plan: str, chat_id: int, notify: bool = True) -> None:
     """Сестра в канале клуба (её впустил Tribute) — значит, купила. Отмечаем
     один раз, без ссылок: доступ у неё уже есть."""
     pid = await db.add_payment(tg_id, "channel", f"channel:{chat_id}:{tg_id}", None, None, "paid",
                                {"plan": plan, "chat_id": chat_id})
     first = await db.mark_paid(tg_id)
     await start_club(bot, tg_id, plan)       # и вернувшуюся после перерыва — снова в клуб
-    if pid is None and not first:
+    if not notify or (pid is None and not first):
         return
     u = await db.get_user(tg_id)
     who = messages.name_of(u) + (f" @{u['username']}" if u and u["username"] else "")
     await messages.notify_admins(bot, f"💰 В канале клуба новая участница: {who} (id {tg_id}), "
                                       f"тариф: {plan_name(plan)}. Продающие сообщения ей больше не придут.")
+
+
+async def sync_club(bot: Bot) -> list[tuple[int, str]]:
+    """Найти в группах клуба сестёр, которых бот не записал в клуб (добавили руками,
+    пока бот не был админом или группе не был выбран тариф), и записать их."""
+    channels = [ch for ch in await db.club_channels() if ch["plan"] in config.PLANS]
+    found = []
+    for tg_id in await db.users_outside_club():
+        for ch in channels:
+            try:
+                m = await bot.get_chat_member(ch["chat_id"], tg_id)
+            except Exception:
+                continue
+            finally:
+                await asyncio.sleep(0.05)          # не больше ~20 запросов в секунду
+            if m.status in ("member", "restricted") and getattr(m, "is_member", True):
+                await mark_club_member(bot, tg_id, ch["plan"], ch["chat_id"], notify=False)
+                found.append((tg_id, ch["plan"]))
+                break
+    return found
 
 
 async def club_plan_by_membership(bot: Bot, tg_id: int) -> str | None:

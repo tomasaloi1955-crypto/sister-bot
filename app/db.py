@@ -342,6 +342,15 @@ async def club_deactivate(tg_id: int) -> bool:
     return row is not None
 
 
+async def users_outside_club() -> list[int]:
+    """Все, кто не в клубе (для /syncclub: вдруг их добавили в группу клуба руками)."""
+    rows = await _p().fetch(
+        """SELECT u.tg_id FROM users u
+           WHERE NOT u.blocked
+             AND NOT EXISTS (SELECT 1 FROM club_members m WHERE m.tg_id = u.tg_id AND m.active)""")
+    return [r["tg_id"] for r in rows]
+
+
 async def club_member(tg_id: int) -> asyncpg.Record | None:
     return await _p().fetchrow("SELECT * FROM club_members WHERE tg_id = $1", tg_id)
 
