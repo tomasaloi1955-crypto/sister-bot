@@ -44,6 +44,7 @@ HELP = (
     "/who 123456789 — где сейчас сестра: анкета, тренировки, оплата\n"
     "/testme — сбросить СВОЮ бесплатную неделю, чтобы пройти анкету заново (проверка)\n"
     "/purge 123456789 — убрать у сестры из чата все видео тренировок сейчас\n"
+    "/syncclub — найти в группах клуба сестёр, которых бот не записал в клуб (добавили руками)\n"
     "/grant 123456789 3 — выдать клуб вручную (id участницы; 3 или 6 — тариф)\n"
     "/export — выгрузка участниц в CSV\n"
     "/products — товары Tribute и куда идут их оплаты\n"
@@ -693,6 +694,23 @@ async def grant(message: Message, command: CommandObject, bot: Bot) -> None:
     tg_id = int(args[0])
     await db.add_payment(tg_id, "manual", None, None, None, "paid", {"by": message.from_user.id, "plan": plan})
     await payments.grant_access(bot, tg_id, plan)
+
+
+@router.message(Command("syncclub"))
+async def syncclub(message: Message, bot: Bot) -> None:
+    await message.answer("🔎 Проверяю, кто из сестёр уже в группах клуба… Это займёт минуту-две.")
+    found = await payments.sync_club(bot)
+    if not found:
+        await message.answer("Все, кто в группах клуба, уже записаны в клуб 👍")
+        return
+    lines = []
+    for tg_id, plan in found:
+        u = await db.get_user(tg_id)
+        who = messages.name_of(u) + (f" @{html.escape(u['username'])}" if u and u["username"] else "")
+        lines.append(f"• {who} (id {tg_id}) — {payments.plan_name(plan)}")
+    await message.answer(f"✅ Записала в клуб: {len(found)}\n" + "\n".join(lines)
+                         + "\n\nКаждой бот прислал приветствие клуба, дальше — напоминания об эфирах "
+                           "или тренировки по её тарифу.")
 
 
 # ─────────────────────────────── товары Tribute ───────────────────────────────
