@@ -553,6 +553,13 @@ async def mark_paid(tg_id: int) -> bool:
 
 # ─────────────────────────────── админка ───────────────────────────────
 
+async def user_id_by_username(username: str) -> int | None:
+    """Ник без @ → id (без учёта регистра). None — такого ника в боте нет."""
+    return await _p().fetchval(
+        "SELECT tg_id FROM users WHERE lower(username) = lower($1) ORDER BY created_at DESC LIMIT 1",
+        username)
+
+
 async def person_card(tg_id: int) -> dict | None:
     """Всё о сестре для /who: анкета, здоровье, отметки, отправленное, оплаты."""
     u = await get_user(tg_id)
