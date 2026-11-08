@@ -98,7 +98,7 @@ async def funnel_users() -> list[asyncpg.Record]:
 
 # ─────────────────────────────── здоровье ───────────────────────────────
 
-HEALTH_FIELDS = {"consent_at", "age", "limits", "height_cm", "weight_kg", "step", "onboarding"}
+HEALTH_FIELDS = {"consent_at", "age", "limits", "height_cm", "weight_kg", "step", "onboarding", "note"}
 
 
 async def get_health(tg_id: int) -> asyncpg.Record | None:

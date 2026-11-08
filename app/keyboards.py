@@ -98,6 +98,10 @@ def health_limits(selected: set[str]) -> InlineKeyboardMarkup:
     return _kb(rows)
 
 
+def note_skip() -> InlineKeyboardMarkup:
+    return _kb([[B(text=texts.NOTE_SKIP_BUTTON, callback_data="h:nskip")]])
+
+
 def params_skip() -> InlineKeyboardMarkup:
     return _kb([[B(text=texts.PARAMS_SKIP_BUTTON, callback_data="h:pskip")]])
 

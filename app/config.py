@@ -97,4 +97,9 @@ DEFAULT_PLAN = "3x"
 # даёт боту удалять сообщения только первые 48 часов, а будильник может опаздывать).
 MEDIA_TTL_HOURS = _int("MEDIA_TTL_HOURS", 36)
 
+# Gemini — «умные» короткие советы по здоровью. Ключ: aistudio.google.com → Get API key.
+# Пусто или Gemini не ответил — бот шлёт готовые советы из texts.py.
+GEMINI_API_KEY = _str("GEMINI_API_KEY")
+GEMINI_MODEL = _str("GEMINI_MODEL", "gemini-2.5-flash")
+
 SEND_RATE = _int("SEND_RATE", 25)            # сообщений в секунду, не больше

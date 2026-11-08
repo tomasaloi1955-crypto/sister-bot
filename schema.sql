@@ -38,6 +38,8 @@ CREATE TABLE IF NOT EXISTS health (
     onboarding   BOOLEAN NOT NULL DEFAULT false,  -- вопросы идут сразу после анкеты
     updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+-- «Другое»: что сестра написала своими словами (варикоз, диастаз, грыжа L5…)
+ALTER TABLE health ADD COLUMN IF NOT EXISTS note TEXT;
 
 -- Тренировки: по одной на день (slot — запасное поле, обычно day)
 CREATE TABLE IF NOT EXISTS workouts (

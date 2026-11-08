@@ -643,6 +643,7 @@ async def who(message: Message, command: CommandObject) -> None:
         limits = ", ".join(texts.LIMITS.get(x, x) for x in (h["limits"] or "").split(",") if x) or "—"
         lines.append("Здоровье: " + ("пропустила" if not h["consent_at"] else
                      f"{texts.AGES.get(h['age'], '—')}; {limits}"
+                     + (f" («{html.escape(h['note'])}»)" if h["note"] else "")
                      + (f"; {h['height_cm']} см / {h['weight_kg']} кг" if h["height_cm"] else "")))
     lines.append("«Сделала»: " + (", ".join(f"№{d}" for d in card["done"]) or "пока ни одной"))
     cm = card["club"]
