@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from aiogram import Bot, F, Router
 from aiogram.types import CallbackQuery, Message
 
-from .. import config, db, funnel, keyboards, messages, texts
+from .. import ai_advice, config, db, funnel, keyboards, messages, texts
 
 router = Router(name="health")
 router.message.filter(F.chat.type == "private")
@@ -60,28 +60,47 @@ async def finish_onboarding(bot: Bot, u) -> None:
 
 
 def advice_text(h, goal: str | None) -> str:
-    parts = [texts.LIMIT_ADVICE[x] for x in texts.LIMIT_ADVICE if x in _limits(h)]
+    """Готовые советы (без Gemini): по предложению на каждую отметку + вес или питание."""
+    limits = _limits(h)
+    parts = [texts.LIMIT_ADVICE[x] for x in texts.LIMIT_ADVICE
+             if x in limits and not (x == "other" and h["note"])]
+    if "other" in limits and h["note"]:
+        parts.append(texts.OTHER_NOTE_ADVICE.format(note=html.escape(h["note"][:80])))
     if h["age"] in texts.AGE_ADVICE:
         parts.append(texts.AGE_ADVICE[h["age"]])
-    if goal in texts.NUTRITION:
+    b = ai_advice.bmi_group(h["height_cm"], h["weight_kg"])
+    if b and "pregnant" not in limits:
+        parts.append(texts.WEIGHT_ADVICE["postpartum" if "postpartum" in limits and b[1] != "low" else b[1]])
+    elif goal in texts.NUTRITION:
         parts.append(texts.NUTRITION[goal])
     return texts.HEALTH_ADVICE_HEADER + "\n\n".join(parts) + texts.HEALTH_DISCLAIMER if parts else ""
+
+
+async def build_advice(h, goal: str | None) -> str:
+    """Советы от Gemini, если он подключён и ответил, иначе — готовые."""
+    if h["consent_at"] is None:
+        return ""
+    smart = await ai_advice.advise(h, goal)
+    if smart:
+        return texts.HEALTH_ADVICE_HEADER + smart + texts.HEALTH_DISCLAIMER
+    return advice_text(h, goal)
 
 
 async def _finish(bot: Bot, tg_id: int) -> None:
     h = await db.set_health(tg_id, step=None)
     u = await db.get_user(tg_id)
     if h["consent_at"]:
-        text = advice_text(h, u["goal"])
+        text = await build_advice(h, u["goal"])
         if text:
             await messages.say(bot, tg_id, text)
         limits = [x for x in _limits(h) if x != "none"]
         if limits:
             who = messages.name_of(u) + (f" @{u['username']}" if u["username"] else "")
             params = f"; {h['height_cm']} см / {h['weight_kg']} кг" if h["height_cm"] else ""
+            note = f"; «{html.escape(h['note'])}»" if h["note"] else ""
             await messages.notify_admins(
                 bot, f"🩺 {who} (id {tg_id}): возраст {texts.AGES.get(h['age'], '—')}; "
-                     + ", ".join(texts.LIMITS[x] for x in limits) + params)
+                     + ", ".join(texts.LIMITS.get(x, x) for x in limits) + note + params)
     if h["onboarding"]:
         await db.set_health(tg_id, onboarding=False)
         await finish_onboarding(bot, u)
@@ -121,7 +140,7 @@ async def age(cb: CallbackQuery) -> None:
     if value not in texts.AGES:
         return
     await _mark_choice(cb, texts.AGES[value])
-    await db.set_health(cb.from_user.id, age=value, limits="", step="limits")
+    await db.set_health(cb.from_user.id, age=value, limits="", note=None, step="limits")
     await cb.message.answer(texts.Q_LIMITS, reply_markup=keyboards.health_limits(set()))
 
 
@@ -148,12 +167,30 @@ async def toggle_limit(cb: CallbackQuery) -> None:
 @router.callback_query(F.data == "h:limdone")
 async def limits_done(cb: CallbackQuery) -> None:
     await cb.answer()
-    h = await db.set_health(cb.from_user.id, step="params")
-    chosen = ", ".join(texts.LIMITS[x] for x in _limits(h)) or texts.LIMITS["none"]
+    h = await db.get_health(cb.from_user.id)
+    if not h or h["step"] != "limits":
+        return
+    other = "other" in _limits(h)
+    h = await db.set_health(cb.from_user.id, step="note" if other else "params")
+    chosen = ", ".join(texts.LIMITS.get(x, x) for x in _limits(h)) or texts.LIMITS["none"]
     try:
         await cb.message.edit_text(f"{cb.message.html_text}\n\n<b>→ {html.escape(chosen)}</b>")
     except Exception:
         pass
+    if other:
+        await cb.message.answer(texts.Q_NOTE, reply_markup=keyboards.note_skip())
+    else:
+        await cb.message.answer(texts.Q_PARAMS, reply_markup=keyboards.params_skip())
+
+
+@router.callback_query(F.data == "h:nskip")
+async def note_skip(cb: CallbackQuery) -> None:
+    await cb.answer()
+    h = await db.get_health(cb.from_user.id)
+    if not h or h["step"] != "note":
+        return
+    await _mark_choice(cb, texts.NOTE_SKIP_BUTTON)
+    await db.set_health(cb.from_user.id, step="params")
     await cb.message.answer(texts.Q_PARAMS, reply_markup=keyboards.params_skip())
 
 
@@ -179,8 +216,12 @@ def parse_params(text: str) -> tuple[int, int] | None:
 
 
 async def handle_text(message: Message, bot: Bot) -> bool:
-    """Свободный текст, когда ждём рост и вес. True — сообщение обработано здесь."""
+    """Свободный текст, когда ждём «Другое» или рост и вес. True — обработано здесь."""
     h = await db.get_health(message.from_user.id)
+    if h and h["step"] == "note":
+        await db.set_health(message.from_user.id, note=message.text.strip()[:300], step="params")
+        await message.answer(texts.Q_PARAMS, reply_markup=keyboards.params_skip())
+        return True
     if not h or h["step"] != "params":
         return False
     parsed = parse_params(message.text)
