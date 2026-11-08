@@ -384,6 +384,10 @@ async def get_setting(key: str) -> str | None:
     return await _p().fetchval("SELECT value FROM settings WHERE key = $1", key)
 
 
+async def del_setting(key: str) -> None:
+    await _p().execute("DELETE FROM settings WHERE key = $1", key)
+
+
 async def set_setting(key: str, value: str) -> None:
     await _p().execute(
         """INSERT INTO settings (key, value) VALUES ($1, $2)

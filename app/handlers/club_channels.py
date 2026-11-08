@@ -18,7 +18,7 @@ from aiogram.types import CallbackQuery, ChatMemberUpdated, Message
 from aiogram.types import InlineKeyboardButton as B
 from aiogram.types import InlineKeyboardMarkup
 
-from .. import config, db, messages, payments, texts
+from .. import config, db, keyboards, messages, payments, sender, texts
 
 log = logging.getLogger(__name__)
 router = Router(name="club_channels")
@@ -139,6 +139,54 @@ async def channel_plan(cb: CallbackQuery) -> None:
     await cb.message.edit_text(cb.message.html_text + f"\n\n→ {PLAN_LABELS[code]}")
 
 
+async def hello_in_group(bot: Bot, chat_id: int, user) -> None:
+    """Бот не может написать ей первым — зовём из группы кнопкой «Получать тренировки».
+    Сообщение удалим, когда она нажмёт «Начать» (см. user.start)."""
+    mention = f'<a href="tg://user?id={user.id}">{html.escape(user.first_name or "сестра")}</a>'
+    try:
+        msg = await bot.send_message(chat_id, texts.CLUB_GROUP_HELLO.format(mention=mention),
+                                     reply_markup=keyboards.open_bot((await bot.me()).username))
+        await db.set_setting(f"grouphello:{user.id}", f"{chat_id}:{msg.message_id}")
+    except Exception:
+        log.exception("Не удалось написать приветствие в группе %s", chat_id)
+
+
+async def forget_group_hello(bot: Bot, tg_id: int) -> None:
+    """Нажала «Начать» — приглашение в группе больше не нужно, убираем его."""
+    value = await db.get_setting(f"grouphello:{tg_id}")
+    if not value:
+        return
+    await db.del_setting(f"grouphello:{tg_id}")
+    chat_id, _, msg_id = value.partition(":")
+    try:
+        await bot.delete_message(int(chat_id), int(msg_id))
+    except Exception:
+        pass
+
+
+@router.message(F.chat.type == "private", admin_only, Command("clubinvite"))
+async def club_invite(message: Message, bot: Bot) -> None:
+    """Закрепить в каждой группе клуба кнопку «Получать тренировки» — для тех,
+    кто уже в группе, но бота ни разу не открывал."""
+    username = (await bot.me()).username
+    done = []
+    for ch in await db.club_channels():
+        if ch["plan"] not in config.PLANS:
+            continue
+        title = html.escape(ch["title"] or str(ch["chat_id"]))
+        try:
+            msg = await bot.send_message(ch["chat_id"], texts.CLUB_GROUP_PIN, reply_markup=keyboards.open_bot(username))
+        except Exception as e:
+            done.append(f"⚠️ «{title}»: не смогла написать ({html.escape(str(e))[:150]})")
+            continue
+        try:
+            await bot.pin_chat_message(ch["chat_id"], msg.message_id, disable_notification=True)
+            done.append(f"✅ «{title}»: написала и закрепила")
+        except Exception:
+            done.append(f"✅ «{title}»: написала (закрепить не смогла — дайте боту право закреплять)")
+    await message.answer("\n".join(done) or "Групп клуба нет — назначьте тариф в /channels.")
+
+
 @router.chat_member(F.chat.type.in_(CLUB_CHAT_TYPES))
 async def member_changed(update: ChatMemberUpdated, bot: Bot) -> None:
     """Вступила в канал клуба — купила; вышла (Tribute убрал по окончании подписки) —
@@ -150,7 +198,9 @@ async def member_changed(update: ChatMemberUpdated, bot: Bot) -> None:
     was_in = update.old_chat_member.status in IN_CHANNEL
     now_in = update.new_chat_member.status in IN_CHANNEL
     if now_in and not was_in:
-        await payments.mark_club_member(bot, tg_id, plan, update.chat.id)
+        status = await payments.mark_club_member(bot, tg_id, plan, update.chat.id)
+        if status is not None and status != sender.OK and update.chat.type != "channel":
+            await hello_in_group(bot, update.chat.id, update.new_chat_member.user)
     elif was_in and update.new_chat_member.status in ("left", "kicked") and await db.club_deactivate(tg_id):
         await messages.purge_media(bot, tg_id, club_only=True)   # видео клуба — только пока подписка
         u = await db.get_user(tg_id)
