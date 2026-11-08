@@ -13,6 +13,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 
 from aiogram import Bot
+from aiogram.exceptions import TelegramMigrateToChat
 
 from . import config, db, keyboards, messages, texts
 
@@ -94,24 +95,42 @@ async def mark_club_member(bot: Bot, tg_id: int, plan: str, chat_id: int, notify
                                       f"тариф: {plan_name(plan)}. Продающие сообщения ей больше не придут.")
 
 
-async def sync_club(bot: Bot) -> list[tuple[int, str]]:
+async def membership(bot: Bot, chat_id: int, tg_id: int) -> tuple[int, str]:
+    """Статус сестры в группе клуба: (id группы, member/left/… или «ошибка: …»).
+    Группа стала супергруппой (новый id) — запоминаем новый id и спрашиваем там."""
+    for _ in range(2):
+        try:
+            m = await bot.get_chat_member(chat_id, tg_id)
+        except TelegramMigrateToChat as e:
+            log.warning("Группа %s стала супергруппой %s — переношу тариф", chat_id, e.migrate_to_chat_id)
+            await db.move_channel(chat_id, e.migrate_to_chat_id)
+            chat_id = e.migrate_to_chat_id
+            continue
+        except Exception as e:
+            return chat_id, f"ошибка: {getattr(e, 'message', None) or e}"
+        if m.status == "restricted" and not getattr(m, "is_member", True):
+            return chat_id, "left"
+        return chat_id, m.status
+    return chat_id, "ошибка: группа переехала"
+
+
+async def sync_club(bot: Bot) -> tuple[list[tuple[int, str]], dict[str, str]]:
     """Найти в группах клуба сестёр, которых бот не записал в клуб (добавили руками,
-    пока бот не был админом или группе не был выбран тариф), и записать их."""
-    channels = [ch for ch in await db.club_channels() if ch["plan"] in config.PLANS]
-    found = []
+    пока бот не был админом или группе не был выбран тариф), и записать их.
+    Вернёт найденных и группы, которые проверить не удалось (название → ошибка)."""
+    channels = [dict(ch) for ch in await db.club_channels() if ch["plan"] in config.PLANS]
+    found, broken = [], {}
     for tg_id in await db.users_outside_club():
         for ch in channels:
-            try:
-                m = await bot.get_chat_member(ch["chat_id"], tg_id)
-            except Exception:
-                continue
-            finally:
-                await asyncio.sleep(0.05)          # не больше ~20 запросов в секунду
-            if m.status in ("member", "restricted") and getattr(m, "is_member", True):
+            ch["chat_id"], status = await membership(bot, ch["chat_id"], tg_id)
+            await asyncio.sleep(0.05)              # не больше ~20 запросов в секунду
+            if status.startswith("ошибка") and "not found" not in status.lower():
+                broken.setdefault(ch["title"] or str(ch["chat_id"]), status)
+            if status in ("member", "restricted"):
                 await mark_club_member(bot, tg_id, ch["plan"], ch["chat_id"], notify=False)
                 found.append((tg_id, ch["plan"]))
                 break
-    return found
+    return found, broken
 
 
 async def club_plan_by_membership(bot: Bot, tg_id: int) -> str | None:
@@ -119,12 +138,9 @@ async def club_plan_by_membership(bot: Bot, tg_id: int) -> str | None:
     for ch in await db.club_channels():
         if ch["plan"] not in config.PLANS:
             continue
-        try:
-            m = await bot.get_chat_member(ch["chat_id"], tg_id)
-        except Exception:
-            continue                                   # нет в канале или бот уже не админ
-        if m.status in ("member", "restricted") and getattr(m, "is_member", True):
-            await mark_club_member(bot, tg_id, ch["plan"], ch["chat_id"])
+        chat_id, status = await membership(bot, ch["chat_id"], tg_id)
+        if status in ("member", "restricted"):
+            await mark_club_member(bot, tg_id, ch["plan"], chat_id)
             return ch["plan"]
     return None
 
