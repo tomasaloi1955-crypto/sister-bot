@@ -98,6 +98,10 @@ def health_limits(selected: set[str]) -> InlineKeyboardMarkup:
     return _kb(rows)
 
 
+def open_bot(username: str) -> InlineKeyboardMarkup:
+    return _kb([[B(text=texts.CLUB_BOT_BUTTON, url=f"https://t.me/{username}?start=club")]])
+
+
 def note_skip() -> InlineKeyboardMarkup:
     return _kb([[B(text=texts.NOTE_SKIP_BUTTON, callback_data="h:nskip")]])
 

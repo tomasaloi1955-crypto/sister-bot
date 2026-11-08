@@ -10,7 +10,7 @@ from aiogram.filters import Command, CommandObject, CommandStart
 from aiogram.types import CallbackQuery, LabeledPrice, Message, PreCheckoutQuery
 
 from .. import config, db, funnel, keyboards, messages, payments, texts
-from . import health
+from . import club_channels, health
 
 log = logging.getLogger(__name__)
 router = Router(name="user")
@@ -45,11 +45,21 @@ async def _notify_new_lead(bot: Bot, u) -> None:
 # ─────────────────────────────── /start и анкета ───────────────────────────────
 
 @router.message(CommandStart())
-async def start(message: Message, command: CommandObject) -> None:
+async def start(message: Message, command: CommandObject, bot: Bot) -> None:
     fu = message.from_user
-    u = await db.upsert_user(fu.id, fu.username, fu.first_name, _source(command.args))
+    from_club = (command.args or "").strip() == "club"     # кнопка «Получать тренировки» из группы клуба
+    u = await db.upsert_user(fu.id, fu.username, fu.first_name, None if from_club else _source(command.args))
     name = messages.name_of(u)
-    if u["inserted"]:
+    await club_channels.forget_group_hello(bot, fu.id)
+    # В клубе (или уже в группе клуба, но бот не знал) — приветствие клуба вместо бесплатной недели
+    member = await db.club_member(fu.id)
+    if not (member and member["active"]):
+        if await payments.club_plan_by_membership(bot, fu.id):
+            return                                     # записали в клуб, приветствие ушло
+    elif u["started_at"] is None or from_club:
+        await payments.club_welcome(bot, fu.id, member["plan"])
+        return
+    if u["inserted"] and not from_club:
         await _notify_new_lead(message.bot, u)
     if u["started_at"]:
         day = funnel.funnel_day(u["started_at"], _now(), u["tz"])

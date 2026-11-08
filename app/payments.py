@@ -52,17 +52,24 @@ async def send_club_link(bot: Bot, tg_id: int, plan: str | None, again: bool = F
     return link
 
 
-async def start_club(bot: Bot, tg_id: int, plan: str | None) -> None:
-    """Сделать участницей клуба: бот начнёт присылать ей тренировки клуба лично."""
+async def club_welcome(bot: Bot, tg_id: int, plan: str) -> str:
+    """Приветствие клуба: что и когда будет. Вернёт статус отправки (sender.OK …)."""
+    u = await db.get_user(tg_id)
+    live = await messages.live_schedule()
+    what = texts.CLUB_WHAT[plan].format(
+        live=messages.live_text(live),
+        time=texts.SLOTS.get((u["slot"] if u else None) or "evening", texts.SLOTS["evening"]))
+    return await messages.say(bot, tg_id, texts.CLUB_START[plan].format(name=messages.name_of(u), what=what),
+                              keyboards.live(await messages.live_link()) if plan == "3x" else None)
+
+
+async def start_club(bot: Bot, tg_id: int, plan: str | None) -> str | None:
+    """Сделать участницей клуба: бот начнёт присылать ей тренировки клуба лично.
+    Вернёт статус приветствия (None — она уже была в клубе, приветствие не нужно)."""
     plan = plan if plan in config.PLANS else config.DEFAULT_PLAN
     if await db.club_activate(tg_id, plan):
-        u = await db.get_user(tg_id)
-        live = await messages.live_schedule()
-        what = texts.CLUB_WHAT[plan].format(
-            live=messages.live_text(live),
-            time=texts.SLOTS.get((u["slot"] if u else None) or "evening", texts.SLOTS["evening"]))
-        await messages.say(bot, tg_id, texts.CLUB_START[plan].format(name=messages.name_of(u), what=what),
-                           keyboards.live(await messages.live_link()) if plan == "3x" else None)
+        return await club_welcome(bot, tg_id, plan)
+    return None
 
 
 async def grant_access(bot: Bot, tg_id: int, plan: str | None, via_tribute: bool = False) -> None:
@@ -80,19 +87,20 @@ async def grant_access(bot: Bot, tg_id: int, plan: str | None, via_tribute: bool
              + ("" if link or tribute_lets_in else "\n⚠️ Ссылки в канал нет — добавь её в канал вручную."))
 
 
-async def mark_club_member(bot: Bot, tg_id: int, plan: str, chat_id: int, notify: bool = True) -> None:
+async def mark_club_member(bot: Bot, tg_id: int, plan: str, chat_id: int, notify: bool = True) -> str | None:
     """Сестра в канале клуба (её впустил Tribute) — значит, купила. Отмечаем
     один раз, без ссылок: доступ у неё уже есть."""
     pid = await db.add_payment(tg_id, "channel", f"channel:{chat_id}:{tg_id}", None, None, "paid",
                                {"plan": plan, "chat_id": chat_id})
     first = await db.mark_paid(tg_id)
-    await start_club(bot, tg_id, plan)       # и вернувшуюся после перерыва — снова в клуб
+    status = await start_club(bot, tg_id, plan)   # и вернувшуюся после перерыва — снова в клуб
     if not notify or (pid is None and not first):
-        return
+        return status
     u = await db.get_user(tg_id)
     who = messages.name_of(u) + (f" @{u['username']}" if u and u["username"] else "")
     await messages.notify_admins(bot, f"💰 В канале клуба новая участница: {who} (id {tg_id}), "
                                       f"тариф: {plan_name(plan)}. Продающие сообщения ей больше не придут.")
+    return status
 
 
 async def membership(bot: Bot, chat_id: int, tg_id: int) -> tuple[int, str]:
