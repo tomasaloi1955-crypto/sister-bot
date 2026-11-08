@@ -523,6 +523,20 @@ async def set_channel_plan(chat_id: int, plan: str) -> None:
     await _p().execute("UPDATE club_channels SET plan = $2 WHERE chat_id = $1", chat_id, plan)
 
 
+async def move_channel(old_id: int, new_id: int) -> None:
+    """Telegram переделал группу в супергруппу — у неё новый id. Тариф переносим."""
+    async with _p().acquire() as con, con.transaction():
+        old = await con.fetchrow("SELECT * FROM club_channels WHERE chat_id = $1", old_id)
+        if old is None:
+            return
+        await con.execute(
+            """INSERT INTO club_channels (chat_id, title, plan) VALUES ($1, $2, $3)
+               ON CONFLICT (chat_id) DO UPDATE SET plan = COALESCE(club_channels.plan, EXCLUDED.plan),
+                                                   title = COALESCE(club_channels.title, EXCLUDED.title)""",
+            new_id, old["title"], old["plan"])
+        await con.execute("DELETE FROM club_channels WHERE chat_id = $1", old_id)
+
+
 async def club_channels() -> list[asyncpg.Record]:
     return await _p().fetch("SELECT * FROM club_channels ORDER BY added_at")
 

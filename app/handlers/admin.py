@@ -618,7 +618,7 @@ async def testme(message: Message, state: FSMContext) -> None:
 
 
 @router.message(Command("who"))
-async def who(message: Message, command: CommandObject) -> None:
+async def who(message: Message, command: CommandObject, bot: Bot) -> None:
     arg = (command.args or "").strip().lstrip("@")
     if not arg.isdigit():
         await message.answer("Формат: <code>/who 123456789</code> (id есть в сообщении о заявке и в /export)")
@@ -660,6 +660,13 @@ async def who(message: Message, command: CommandObject) -> None:
         lines.append("🔕 Отписалась от рассылки")
     if u["blocked"]:
         lines.append("⛔ Заблокировала бота")
+    names = {"creator": "создатель", "administrator": "админ", "member": "✅ состоит",
+             "restricted": "✅ состоит", "left": "❌ нет", "kicked": "⛔ удалена"}
+    for ch in await db.club_channels():
+        if ch["plan"] in config.PLANS:
+            _, status = await payments.membership(bot, ch["chat_id"], u["tg_id"])
+            lines.append(f"В группе «{html.escape(ch['title'] or str(ch['chat_id']))}»: "
+                         + html.escape(names.get(status, status)))
     if card["sends"]:
         lines.append("\nПоследнее отправленное:")
         for s in card["sends"]:
@@ -699,9 +706,12 @@ async def grant(message: Message, command: CommandObject, bot: Bot) -> None:
 @router.message(Command("syncclub"))
 async def syncclub(message: Message, bot: Bot) -> None:
     await message.answer("🔎 Проверяю, кто из сестёр уже в группах клуба… Это займёт минуту-две.")
-    found = await payments.sync_club(bot)
+    found, broken = await payments.sync_club(bot)
+    for title, err in broken.items():
+        await message.answer(f"⚠️ Не могу проверить группу «{html.escape(title)}»: {html.escape(err)}\n"
+                             "Проверьте, что бот там администратор.")
     if not found:
-        await message.answer("Все, кто в группах клуба, уже записаны в клуб 👍")
+        await message.answer("Никого нового в группах клуба не нашла — все, кого я вижу, уже записаны 👍")
         return
     lines = []
     for tg_id, plan in found:

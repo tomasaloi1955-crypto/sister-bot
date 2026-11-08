@@ -95,6 +95,14 @@ async def club_here(message: Message, bot: Bot) -> None:
         pass
 
 
+@router.message(F.migrate_to_chat_id)
+async def migrated(message: Message) -> None:
+    """Группа стала супергруппой — у неё новый id, тариф переносим туда."""
+    await db.move_channel(message.chat.id, message.migrate_to_chat_id)
+    log.info("Группа «%s» стала супергруппой: %s → %s", message.chat.title, message.chat.id,
+             message.migrate_to_chat_id)
+
+
 @router.message(F.video_chat_started)
 @router.channel_post(F.video_chat_started)
 async def video_chat_started(message: Message) -> None:
