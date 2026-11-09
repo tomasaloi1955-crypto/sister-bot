@@ -29,13 +29,15 @@ def decide(current: str, ours: str, force: bool, other_alive: bool | None) -> st
 
 
 async def is_alive(url: str, timeout: float = 60) -> bool:
-    """Отвечает ли сервис по адресу вебхука (бесплатный Render просыпается до минуты)."""
+    """Работает ли наш бот по адресу вебхука: /health отвечает ровно «ok»
+    (страница «сервис на паузе» или ошибка Render — не считается).
+    Бесплатный Render просыпается до минуты."""
     p = urlsplit(url)
-    base = f"{p.scheme}://{p.netloc}/"
+    base = f"{p.scheme}://{p.netloc}/health"
     try:
         async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=timeout)) as s:
             async with s.get(base) as r:
-                return r.status < 500
+                return r.status == 200 and (await r.text()).strip() == "ok"
     except Exception as e:
         log.info("Адрес вебхука %s не отвечает: %s", base, e)
         return False
