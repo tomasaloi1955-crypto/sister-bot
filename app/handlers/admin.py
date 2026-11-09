@@ -35,6 +35,7 @@ HELP = (
     "/repeat on — вы на отдыхе: бот сразу шлёт повторы пройденного; /repeat off — снова новые\n"
     "/channels — каналы и группы клуба: какая группа к какому тарифу (поменять кнопкой)\n"
     "/clubhere — написать в группе: бот спросит в личке, чья это группа\n"
+    "/videos — все тренировки клуба: посмотреть видео и поставить вместо бесплатной №1/2/3\n"
     "/workouts — какие тренировки загружены\n"
     "/show 2 — посмотреть тренировку как участница\n"
     "/broadcast — рассылка по сегменту\n"
@@ -439,6 +440,66 @@ async def show(message: Message, command: CommandObject, bot: Bot) -> None:
         await message.answer("Формат: <code>/show 2</code>")
         return
     await messages.send_workout(bot, message.from_user.id, day, slot or "day", track=False)
+
+
+@router.message(Command("videos"))
+async def videos(message: Message, command: CommandObject, bot: Bot) -> None:
+    """Все тренировки клуба кнопками; /videos 5 — сразу показать №5."""
+    arg = (command.args or "").strip()
+    if arg.isdigit():
+        await _show_club_video(bot, message.from_user.id, int(arg))
+        return
+    rows = await db.recent_club_workouts(limit=200)
+    if not rows:
+        await message.answer("Тренировок клуба пока нет. Пришлите видео боту — оно станет №1.")
+        return
+    lines = []
+    for r_ in sorted(rows, key=lambda x: x["n"]):
+        when = r_["updated_at"].astimezone(funnel.zone(config.DEFAULT_TZ)).strftime("%d.%m")
+        about = html.escape((r_["text"] or "").split("\n", 1)[0][:35]) or "без текста"
+        lines.append(f"№{r_['n']} · {when}{'' if r_['has_video'] else ' · без видео'} · {about}")
+    nums = sorted(r_["n"] for r_ in rows)
+    kb = [[InlineKeyboardButton(text=f"▶️ {n}", callback_data=f"adm:sv:{n}") for n in nums[i:i + 5]]
+          for i in range(0, len(nums), 5)]
+    await message.answer("🎬 <b>Тренировки клуба</b> (номер · когда загружена · начало текста)\n\n"
+                         + "\n".join(lines)
+                         + "\n\nНажмите номер — пришлю видео, а под ним кнопки «Вместо бесплатной №1/2/3».\n"
+                           "Бесплатная неделя сейчас: /show 1, /show 2, /show 3",
+                         reply_markup=InlineKeyboardMarkup(inline_keyboard=kb))
+
+
+async def _show_club_video(bot: Bot, chat_id: int, n: int) -> None:
+    w = await db.get_club_workout(n)
+    if w is None:
+        await bot.send_message(chat_id, f"Тренировки клуба №{n} нет. Список — /videos")
+        return
+    kb = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text=f"➡️ Вместо бесплатной №{d}", callback_data=f"adm:tf:{n}:{d}")]
+        for d in range(1, funnel.WORKOUTS + 1)])
+    await messages._deliver(bot, chat_id, w, f"👀 <b>Клуб · тренировка №{n}</b> (предпросмотр)\n\n",
+                            kb, False, n, True, False)
+
+
+@router.callback_query(F.data.startswith("adm:sv:"))
+async def videos_show_button(cb: CallbackQuery, bot: Bot) -> None:
+    await cb.answer()
+    await _show_club_video(bot, cb.from_user.id, int(cb.data.split(":")[2]))
+
+
+@router.callback_query(F.data.startswith("adm:tf:"))
+async def videos_to_free_button(cb: CallbackQuery, bot: Bot) -> None:
+    _, _, n, day = cb.data.split(":")
+    n, day = int(n), int(day)
+    w = await db.get_club_workout(n)
+    if w is None:
+        await cb.answer(f"Тренировки клуба №{n} уже нет", show_alert=True)
+        return
+    await db.replace_workout(day, w["video"], w["text"])
+    log.info("Бесплатная неделя: тренировка №%s ← клуб №%s (кнопка)", day, n)
+    await cb.answer(f"Готово: №{n} теперь бесплатная №{day}")
+    await bot.send_message(cb.from_user.id, f"✅ Тренировка №{day} бесплатной недели теперь — клуб №{n}. "
+                                            f"Кто ещё не получил №{day}, получит новую. Вот как увидит сестра:")
+    await messages.send_workout(bot, cb.from_user.id, day, "day", track=False)
 
 
 # ─────────────────────────────── рассылка ───────────────────────────────
