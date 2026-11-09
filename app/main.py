@@ -22,7 +22,7 @@ from aiogram.types import BotCommand, ErrorEvent
 from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
 from aiohttp import web
 
-from . import config, db, messages, payments, tick, tribute_router
+from . import config, db, messages, payments, tick, tribute_router, webhook_guard
 from .safe_answer import IgnoreStaleCallback
 from .handlers import admin, channel, club_channels, health, user
 
@@ -83,9 +83,24 @@ async def on_startup(bot: Bot, dp: Dispatcher, webhook: bool) -> None:
         BotCommand(command="club", description="Платный клуб"),
     ])
     if webhook:
-        await bot.set_webhook(config.BASE_URL + WEBHOOK_PATH, secret_token=config.WEBHOOK_SECRET or None,
+        ours = config.BASE_URL + WEBHOOK_PATH
+        current = (await bot.get_webhook_info()).url or ""
+        verdict = webhook_guard.decide(current, ours, config.TAKE_WEBHOOK, None)
+        if verdict == "check":
+            verdict = webhook_guard.decide(current, ours, False, await webhook_guard.is_alive(current))
+        if verdict == "keep":
+            log.warning("Вебхук у другого живого экземпляра (%s) — не забираю. Этот (%s) простаивает. "
+                        "Переезд нарочно: TAKE_WEBHOOK=1.", current, ours)
+            await messages.notify_admins(
+                bot, f"⚠️ Запущена вторая копия бота: {html.escape(config.BASE_URL)}\n"
+                     f"Сообщения Telegram идут на {html.escape(current)} — оставляю их там, "
+                     "сёстры ничего не заметят.\n\nЕсли эта копия лишняя — поставьте её на паузу "
+                     "(Render → сервис → Settings → Suspend). Если это переезд — добавьте этой копии "
+                     "переменную TAKE_WEBHOOK=1.")
+            return
+        await bot.set_webhook(ours, secret_token=config.WEBHOOK_SECRET or None,
                               allowed_updates=dp.resolve_used_update_types())
-        log.info("Вебхук: %s", config.BASE_URL + WEBHOOK_PATH)
+        log.info("Вебхук: %s", ours)
 
 
 def _key_ok(given: str) -> bool:
