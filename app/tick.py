@@ -61,8 +61,8 @@ async def run(bot: Bot, now: datetime | None = None) -> dict:
 
 
 async def run_live(bot: Bot, now: datetime, live: funnel.Live, blocked: set[int], result: Counter) -> None:
-    """Тариф 3x в день эфира: напоминания (утром и за час) или — если сегодня по
-    записи (решила тренер или эфир так и не начался) — тренировка в записи лично."""
+    """Тариф 3x в день тренировки: обычно — тренировка в записи лично; если тренер
+    объявила эфир — напоминания (утром и за час), а не начался эфир — запись."""
     today = funnel.live_today(live, now)
     if today is None:
         return
@@ -78,7 +78,7 @@ async def run_live(bot: Bot, now: datetime, live: funnel.Live, blocked: set[int]
     for key, kind, start in actions:
         sent_before = await db.already_sent([(m["tg_id"], key) for m in members])
         todo = [m for m in members if (m["tg_id"], key) not in sent_before and m["tg_id"] not in blocked]
-        if kind == "rec" and mode != "rec" and todo and await db.claim_alert(f"livemissed:{today}"):
+        if kind == "rec" and mode == "live" and todo and await db.claim_alert(f"livemissed:{today}"):
             await messages.notify_admins(bot, f"🎬 Эфир {start:%d.%m} в {start:%H:%M} не начался (видеочата в "
                                               f"группе нет) — шлю сёстрам «3 раза в неделю» тренировку в записи "
                                               f"({len(todo)}).")
@@ -87,7 +87,7 @@ async def run_live(bot: Bot, now: datetime, live: funnel.Live, blocked: set[int]
             if not await db.claim_send(tg, key):
                 continue
             if kind == "rec":
-                text = texts.LIVE_REC_PLANNED if mode == "rec" else texts.LIVE_REC_MISSED
+                text = texts.LIVE_REC_MISSED if mode == "live" else texts.LIVE_REC_PLANNED
                 status = await messages.say(bot, tg, text.format(name=messages.name_of(m)))
                 if status == sender.OK:
                     status = await deliver_next(bot, m, loaded, result)
@@ -101,7 +101,7 @@ async def run_live(bot: Bot, now: datetime, live: funnel.Live, blocked: set[int]
 
 
 async def ask_coach(bot: Bot, live: funnel.Live, today, mode: str | None, now: datetime) -> None:
-    """Утром в день эфира — спросить тренера: эфир будет или сегодня по записи?"""
+    """Утром в день тренировки — спросить тренера: сегодня по записи или будет эфир?"""
     start = funnel.live_start(live, today)
     local = now.astimezone(funnel.zone(config.DEFAULT_TZ))
     if mode or local.hour < config.ADMIN_MORNING_HOUR or now >= start - timedelta(hours=1):
@@ -109,7 +109,7 @@ async def ask_coach(bot: Bot, live: funnel.Live, today, mode: str | None, now: d
     if not await db.claim_alert(f"livechoice:{today}"):
         return
     await messages.notify_admins(
-        bot, texts.LIVE_ASK_COACH.format(time=f"{start:%H:%M}", grace=config.LIVE_GRACE_MIN),
+        bot, texts.LIVE_ASK_COACH.format(time=f"{start:%H:%M}", rec_hour=config.LIVE_REMIND_HOUR),
         keyboards.live_choice(today.isoformat()))
 
 

@@ -28,7 +28,7 @@ HELP = (
     "<b>Админка</b>\n\n"
     "/stats — статистика и источники\n"
     "/upload 2 — загрузить тренировку №2 бесплатной недели (всего 3)\n"
-    "/live — эфиры «3 раза в неделю»: /live ср пт вс 19:00, /live rec — сегодня по записи, /live link …, /live off\n"
+    "/live — клуб «3 раза в неделю» (обычно записи): /live ср пт вс 19:00, /live live — сегодня эфир, /live link …, /live off\n"
     "Тренировка в записи: просто пришлите видео — номер бот даст сам\n"
     "/upload_club 5 — заменить тренировку клуба №5\n"
     "/tofree 8 1 — поставить тренировку клуба №8 вместо тренировки №1 бесплатной недели\n"
@@ -313,16 +313,20 @@ async def live_cmd(message: Message, command: CommandObject, bot: Bot) -> None:
 
 
 async def _set_today_mode(bot: Bot, mode: str, day: str | None = None) -> str:
-    """Сегодня эфир (live) или по записи (rec). По записи — сразу прогнать тик:
-    сёстры «3 раза в неделю» получат тренировку, не дожидаясь будильника."""
+    """Сегодня эфир (live) или по записи (rec, так по умолчанию). По записи — сразу
+    прогнать тик: сёстры «3 раза в неделю» получат тренировку, не дожидаясь будильника."""
     now = datetime.now(timezone.utc)
     today = funnel.live_today(await messages.live_schedule(), now)
     if today is None or (day and day != today.isoformat()):
-        return "Сегодня эфира по расписанию нет (/live)."
-    if await db.already_sent_any(f"liverec:{today}"):
+        return "Сегодня у «3 раза в неделю» тренировки по расписанию нет (/live)."
+    rec_sent = await db.already_sent_any(f"liverec:{today}")
+    if mode == "rec" and rec_sent:
         return "Сёстрам «3 раза в неделю» сегодняшняя запись уже отправлена 🤍"
     await db.set_setting(f"live_mode:{today}", mode)
     if mode == "live":
+        if rec_sent:
+            return ("📡 Отлично, сегодня эфир! Запись сёстрам уже ушла утром — "
+                    "дополнительно напомню им про эфир за час до начала.")
         return "📡 Отлично, сегодня эфир — напомню сёстрам утром и за час до начала."
     from .. import tick
     task = asyncio.create_task(tick.run(bot))
@@ -351,20 +355,21 @@ async def _live_status() -> str:
     slots = await db.slot_counts()
     day, eve = slots.get("day", (0, 0)), slots.get("evening", (0, 0))
     return (
-        "📡 <b>Живые эфиры клуба</b> " + ("" if live.on else "— <b>на паузе</b> (/live on)") + "\n"
-        f"Когда: {messages.live_text(live)}\n"
-        + (f"Ближайший: {nxt:%d.%m} в {nxt:%H:%M}\n" if nxt else "")
-        + (f"Сегодня: {'🎬 по записи' if mode == 'rec' else '📡 эфир'}\n" if today else "")
+        "🌿 <b>Клуб «3 раза в неделю»</b> " + ("" if live.on else "— <b>на паузе</b> (/live on)") + "\n"
+        f"Дни тренировок: {live.days_text}. Обычно — тренировка в записи (приходит в "
+        f"{config.LIVE_REMIND_HOUR}:00), иногда — живой эфир в {live.time}, если вы его объявите.\n"
+        + (f"Ближайший день: {nxt:%d.%m}\n" if nxt else "")
+        + (f"Сегодня: {'📡 эфир' if mode == 'live' else '🎬 по записи'}\n" if today else "")
         + "Ссылка на эфир: " + (link or "не указана — сёстры увидят «заходи в группу клуба»") + "\n"
-        "Это для тарифа «3 раза в неделю»; «6 раз в неделю» всегда получает записи.\n"
-        f"Эфир не начался через {config.LIVE_GRACE_MIN} мин — сёстрам уходит тренировка в записи.\n\n"
+        "«6 раз в неделю» всегда получает только записи.\n"
+        f"Объявили эфир, а он не начался через {config.LIVE_GRACE_MIN} мин — сёстрам уходит запись.\n\n"
         "Сёстрам удобнее (по анкете):\n"
         f"• {texts.SLOTS.get('day', 'днём')}: {day[0]} всего, из них в клубе {day[1]}\n"
         f"• {texts.SLOTS.get('evening', 'вечером')}: {eve[0]} всего, из них в клубе {eve[1]}\n\n"
         "Поменять: <code>/live ср пт вс 19:00</code>\n"
         "Ссылка на группу: <code>/live link https://t.me/+…</code> (убрать: <code>/live link -</code>)\n"
-        "Сегодня без эфира — по записи: <code>/live rec</code> (передумали: <code>/live live</code>)\n"
-        "Отменить ближайший эфир совсем (без записи): <code>/live skip</code>\n"
+        "Сегодня будет живой эфир: <code>/live live</code> (передумали: <code>/live rec</code>)\n"
+        "Отменить ближайшую тренировку совсем (без записи): <code>/live skip</code>\n"
         "Отпуск — без напоминаний: <code>/live off</code>, вернуться: <code>/live on</code>")
 
 

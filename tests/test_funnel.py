@@ -122,22 +122,25 @@ def test_live_actions():
 
     def kinds(now, mode=None, started=False):
         return [k for _, k, _ in funnel.live_actions(live, now, mode, started)]
+    # по умолчанию — по записи: запись с утреннего часа, без напоминаний об эфире
     assert kinds(at(fri, 9)) == []                           # рано
-    key, kind, _ = funnel.live_actions(live, at(fri, 10))[0]
-    assert (key, kind) == ("live:2026-10-02:day", "day")
-    assert kinds(at(fri, 18)) == ["soon"]
-    assert kinds(at(fri, 19, 10)) == ["soon"]
-    assert kinds(at(fri, 19, 10), started=True) == ["soon"]
-    assert kinds(at(fri, 19, 16)) == ["soon", "rec"]         # эфир не начался — запись
-    assert kinds(at(fri, 20)) == ["rec"]
-    assert kinds(at(fri, 20), started=True) == []            # эфир идёт — запись не нужна
-    assert kinds(at(fri, 22)) == []                          # тихий час
-    # тренер выбрала «по записи» — запись с утреннего часа, без напоминаний об эфире
-    assert kinds(at(fri, 9), mode="rec") == []
-    assert funnel.live_actions(live, at(fri, 10), "rec")[0][:2] == ("liverec:2026-10-02", "rec")
+    assert funnel.live_actions(live, at(fri, 10))[0][:2] == ("liverec:2026-10-02", "rec")
+    assert kinds(at(fri, 18)) == ["rec"]
     assert kinds(at(fri, 18), mode="rec") == ["rec"]
-    assert kinds(at(1, 18)) == []                            # четверг — эфира нет
-    assert kinds(at(fri, 20), mode="live") == ["rec"]        # «будет эфир», но не начался
+    assert kinds(at(fri, 22)) == []                          # тихий час
+    assert kinds(at(1, 18)) == []                            # четверг — тренировки нет
+    # тренер объявила эфир — напоминания, а не начался — запись
+    L = "live"
+    assert kinds(at(fri, 9), L) == []
+    key, kind, _ = funnel.live_actions(live, at(fri, 10), L)[0]
+    assert (key, kind) == ("live:2026-10-02:day", "day")
+    assert kinds(at(fri, 18), L) == ["soon"]
+    assert kinds(at(fri, 19, 10), L) == ["soon"]
+    assert kinds(at(fri, 19, 10), L, started=True) == ["soon"]
+    assert kinds(at(fri, 19, 16), L) == ["soon", "rec"]      # эфир не начался — запись
+    assert kinds(at(fri, 20), L) == ["rec"]
+    assert kinds(at(fri, 20), L, started=True) == []         # эфир идёт — запись не нужна
+    assert kinds(at(fri, 22), L) == []                       # тихий час
     off = funnel.Live(days=live.days, hour=19, on=False)
     assert funnel.live_actions(off, at(fri, 18)) == []
     skipped = funnel.Live(days=live.days, hour=19, skip=frozenset({"2026-10-02"}))
