@@ -137,10 +137,16 @@ async def reweek(cb: CallbackQuery) -> None:
 async def done(cb: CallbackQuery) -> None:
     day = int(cb.data.split(":")[1])
     u = await db.get_user(cb.from_user.id)
+    too_early = u is None or u["started_at"] is None \
+        or day > funnel.funnel_day(u["started_at"], _now(), u["tz"])
+    if too_early and cb.from_user.id in config.ADMIN_IDS:
+        # тренер смотрит предпросмотр (/upload, /show, /tofree) — это не её неделя
+        await cb.answer(texts.DONE_ADMIN_PREVIEW, show_alert=True)
+        return
     if u is None or u["started_at"] is None:
         await cb.answer(texts.NOT_STARTED, show_alert=True)
         return
-    if day > funnel.funnel_day(u["started_at"], _now(), u["tz"]):
+    if too_early:
         await cb.answer(texts.DONE_TOO_EARLY, show_alert=True)
         return
     new, total = await db.mark_done(u["tg_id"], day)
