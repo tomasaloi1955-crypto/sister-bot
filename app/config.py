@@ -33,6 +33,9 @@ DATABASE_URL = _str("DATABASE_URL")
 # Адрес сервиса. На Render задаётся сам (RENDER_EXTERNAL_URL), руками — не нужно.
 BASE_URL = (_str("BASE_URL") or _str("RENDER_EXTERNAL_URL")).rstrip("/")
 WEBHOOK_SECRET = _str("WEBHOOK_SECRET")      # секрет вебхука Telegram (латиница/цифры)
+# 1 — забрать вебхук себе, даже если он у другого живого экземпляра (переезд на новый адрес).
+# Без неё вторая копия бота вебхук не трогает (app/webhook_guard.py).
+TAKE_WEBHOOK = _str("TAKE_WEBHOOK") in ("1", "yes", "true", "on")
 TICK_KEY = _str("TICK_KEY")                  # ключ для /tick?key=...
 PORT = _int("PORT", 10000)
 
