@@ -63,7 +63,8 @@ def live(link: str) -> InlineKeyboardMarkup | None:
 
 def live_choice(day: str) -> InlineKeyboardMarkup:
     return _kb([[B(text="📡 Будет эфир", callback_data=f"adm:lm:{day}:live"),
-                 B(text="🎬 Сегодня по записи", callback_data=f"adm:lm:{day}:rec")]])
+                 B(text="📡 Эфир для всех", callback_data=f"adm:lm:{day}:all")],
+                [B(text="🎬 Отменить — по записи", callback_data=f"adm:lm:{day}:rec")]])
 
 
 def pay() -> InlineKeyboardMarkup:
@@ -136,7 +137,7 @@ def payment_check(pid: int) -> InlineKeyboardMarkup:
 def product_route(key: str) -> InlineKeyboardMarkup:
     return _kb([[B(text="🏫 Школа", callback_data=f"adm:rt:school:{key}")],
                 [B(text="🌿 Клуб 3 раза", callback_data=f"adm:rt:club3x:{key}"),
-                 B(text="🔥 Клуб 6 раз", callback_data=f"adm:rt:club6x:{key}")],
+                 B(text="🔥 Клуб 5 раз", callback_data=f"adm:rt:club6x:{key}")],
                 [B(text="🚫 Ничей", callback_data=f"adm:rt:ignore:{key}")]])
 
 

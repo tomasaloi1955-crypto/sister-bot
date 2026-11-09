@@ -1,6 +1,6 @@
 """Оплата клуба: Tribute (вебхук), Telegram Stars, ручная проверка «Я оплатила».
 
-Тарифа два (config.PLANS): 3x — 3 раза в неделю (эфир или запись), 6x — 6 тренировок в записи в неделю. Тариф
+Тарифа два (config.PLANS): 3x — 3 раза в неделю (эфир или запись), 6x — 5 тренировок в записи в неделю (вт ср пт сб вс). Тариф
 оплаты пишется в payments.raw->>'plan'; по нему выбирается канал клуба.
 """
 from __future__ import annotations
@@ -57,7 +57,7 @@ async def club_welcome(bot: Bot, tg_id: int, plan: str) -> str:
     u = await db.get_user(tg_id)
     live = await messages.live_schedule()
     what = texts.CLUB_WHAT[plan].format(
-        live=messages.live_text(live),
+        **messages.club_vars(live),
         time=texts.SLOTS.get((u["slot"] if u else None) or "evening", texts.SLOTS["evening"]))
     return await messages.say(bot, tg_id, texts.CLUB_START[plan].format(name=messages.name_of(u), what=what),
                               keyboards.live(await messages.live_link()) if plan == "3x" else None)
