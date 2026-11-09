@@ -94,15 +94,20 @@ def test_bad_timezone_falls_back():
 def test_club_records_only_6x():
     def deliveries(plan):
         return [funnel.club_keys(START, "Asia/Almaty", plan, "day", at(d, 12)) for d in range(1, 15)]
-    assert all(ks == [] for ks in deliveries("3x"))                 # «Онлайн» — только эфиры
+    assert all(ks == [] for ks in deliveries("3x"))                 # 3x — записи по дням /live (tick.run_live)
     six = deliveries("6x")
-    # 6 дней подряд от покупки, 7-й — отдых (в него досылка 6-го, если не ушла)
-    assert six[:8] == [[f"club:{i}:day"] for i in (0, 1, 2, 3, 4, 5, 5, 7)]
-    assert {k for ks in six for k in ks} == {f"club:{i}:day" for i in (0, 1, 2, 3, 4, 5, 7, 8, 9, 10, 11, 12)}
-    assert funnel.club_keys(START, "Asia/Almaty", "6x", "day", at(1, 10)) == []        # до 11:00 — рано
-    assert funnel.club_keys(START, "Asia/Almaty", "6x", "day", at(1, 22)) == []        # тихий час
-    assert funnel.club_delivers_on(START, "Asia/Almaty", "6x", at(1, 12))
-    assert not funnel.club_delivers_on(START, "Asia/Almaty", "6x", at(7, 12))           # день отдыха
+    # 1 октября 2026 — чт (отдых). Тренировки вт ср пт сб вс; в пн и чт — досылка
+    # вчерашней, если не ушла; в день вступления, если он отдых, — ничего
+    # чт1 пт2 сб3 вс4 пн5 вт6 ср7 чт8
+    assert six[:8] == [[], ["club:1:day"], ["club:2:day"], ["club:3:day"], ["club:3:day"],
+                       ["club:5:day"], ["club:6:day"], ["club:6:day"]]
+    assert {k for ks in six for k in ks} == {f"club:{i}:day" for i in (1, 2, 3, 5, 6, 8, 9, 10, 12, 13)}
+    assert funnel.club_keys(START, "Asia/Almaty", "6x", "day", at(2, 10)) == []        # до 11:00 — рано
+    assert funnel.club_keys(START, "Asia/Almaty", "6x", "day", at(2, 22)) == []        # тихий час
+    assert funnel.club_delivers_on(START, "Asia/Almaty", "6x", at(2, 12))               # пт
+    assert not funnel.club_delivers_on(START, "Asia/Almaty", "6x", at(5, 12))           # пн — отдых
+    assert not funnel.club_delivers_on(START, "Asia/Almaty", "6x", at(4, 12), ahead=1)  # завтра пн
+    assert funnel.club_delivers_on(START, "Asia/Almaty", "6x", at(5, 12), ahead=1)      # завтра вт
     assert not funnel.club_delivers_on(START, "Asia/Almaty", "3x", at(1, 12))
 
 

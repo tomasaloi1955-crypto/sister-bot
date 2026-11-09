@@ -361,7 +361,7 @@ async def _live_status() -> str:
         + (f"Ближайший день: {nxt:%d.%m}\n" if nxt else "")
         + (f"Сегодня: {'📡 эфир' if mode == 'live' else '🎬 по записи'}\n" if today else "")
         + "Ссылка на эфир: " + (link or "не указана — сёстры увидят «заходи в группу клуба»") + "\n"
-        "«6 раз в неделю» всегда получает только записи.\n"
+        "«5 раз в неделю» получает только записи (вт, ср, пт, сб, вс).\n"
         f"Объявили эфир, а он не начался через {config.LIVE_GRACE_MIN} мин — сёстрам уходит запись.\n\n"
         "Сёстрам удобнее (по анкете):\n"
         f"• {texts.SLOTS.get('day', 'днём')}: {day[0]} всего, из них в клубе {day[1]}\n"
@@ -705,7 +705,7 @@ async def grant(message: Message, command: CommandObject, bot: Bot) -> None:
     plan = f"{args[1]}x" if len(args) > 1 else config.DEFAULT_PLAN
     if not args or not args[0].isdigit() or plan not in config.PLANS:
         await message.answer("Формат: <code>/grant 123456789 3</code> или <code>/grant 123456789 6</code>\n"
-                             "(Telegram id участницы из /export; 3 или 6 раз в неделю)")
+                             "(Telegram id участницы из /export; 3 или 5 раз в неделю)")
         return
     tg_id = int(args[0])
     await db.add_payment(tg_id, "manual", None, None, None, "paid", {"by": message.from_user.id, "plan": plan})
@@ -785,7 +785,7 @@ async def route_cmd(message: Message, command: CommandObject) -> None:
         route = ROUTE_ALIASES.get(args[1].lower()) or (f"url:{args[1]}" if args[1].startswith("https://") else None)
     if route is None:
         await message.answer("Формат: <code>/route 12345 school</code>\n"
-                             "Вместо school: 3 (клуб 3 раза), 6 (клуб 6 раз), ignore или адрес https://…")
+                             "Вместо school: 3 (клуб 3 раза), 6 (клуб 5 раз), ignore или адрес https://…")
         return
     await db.set_product_route(args[0], route)
     await message.answer(f"✅ Товар {html.escape(args[0])} → {html.escape(tribute_router.route_name(route))}")

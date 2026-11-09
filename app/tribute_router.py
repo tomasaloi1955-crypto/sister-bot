@@ -28,7 +28,7 @@ log = logging.getLogger(__name__)
 
 ROUTES = ("school", "club3x", "club6x", "ignore")
 ROUTE_NAMES = {"school": "🏫 Школа", "club3x": "🌿 Клуб 3 раза в неделю",
-               "club6x": "🔥 Клуб 6 раз в неделю", "ignore": "🚫 Ничей (не пересылать)"}
+               "club6x": "🔥 Клуб 5 раз в неделю", "ignore": "🚫 Ничей (не пересылать)"}
 RETRY_MINUTES = (1, 2, 5, 10, 30, 60)        # дальше — раз в час
 ALERT_AFTER = 3                               # после стольких неудач — сообщение админу
 _background: set[asyncio.Task] = set()

@@ -114,9 +114,9 @@ def plan(p: Person, now: datetime) -> list[Action]:
 # ─────────────────────────────── клуб ───────────────────────────────
 # Тариф 3x «3 раза в неделю» — 3 тренировки в неделю (дни — /live): обычно бот
 # лично присылает тренировку в записи, а иногда тренер проводит живой эфир в
-# группе клуба (/live live или кнопка утром) — тогда бот напоминает об эфире. Тариф 6x — эфиров нет: бот лично присылает
-# тренировку в записи 6 дней из 7 (неделя — от дня покупки), видео удаляется
-# через MEDIA_TTL_HOURS.
+# группе клуба (/live live или кнопка утром) — тогда бот напоминает об эфире.
+# Тариф 6x («5 раз в неделю») — эфиров нет: бот лично присылает тренировку в записи
+# вт, ср, пт, сб, вс (CLUB_WEEK), видео удаляется через MEDIA_TTL_HOURS.
 WEEKDAYS = ("пн", "вт", "ср", "чт", "пт", "сб", "вс")
 _DAY_NAMES = ("понедельник", "вторник", "среда", "четверг", "пятница", "суббота", "воскресенье")
 REST_WEEKDAY = 6                                        # воскресенье
@@ -214,8 +214,10 @@ def next_live(live: Live, now: datetime) -> datetime | None:
     return None
 
 
-# Тренировки в записи — только тариф 6x. Неделя считается от дня покупки (день 0):
-CLUB_WEEK = {"6x": {0, 1, 2, 3, 4, 5}}                  # день 6 — отдых
+# Тренировки в записи по своим дням недели (по часовому поясу участницы) — тариф 6x
+# (код в базе остался 6x, по сути «5 раз в неделю»): вт, ср, пт, сб, вс; пн и чт — отдых.
+# Тариф 3x получает записи отдельно, по дням /live (tick.run_live).
+CLUB_WEEK = {"6x": {1, 2, 4, 5, 6}}                     # 0 — понедельник
 
 
 def club_keys(started_at: datetime, tz: str, plan: str, slot: str | None, now: datetime) -> list[str]:
@@ -224,20 +226,22 @@ def club_keys(started_at: datetime, tz: str, plan: str, slot: str | None, now: d
     вчера не ушло (журнал sends не даст прислать дважды)."""
     days = CLUB_WEEK.get(plan)
     local = now.astimezone(zone(tz))
-    if not days or local.hour >= config.QUIET_HOUR:
+    i = funnel_day(started_at, now, tz) - 1           # 0 — день вступления в клуб
+    if not days or local.hour >= config.QUIET_HOUR or i < 0:
         return []
-    i = funnel_day(started_at, now, tz) - 1
+    wd = local.weekday()
     out = []
     for s in slots_of(slot):
         if local.hour < slot_hour(s):
             continue
-        if i % 7 in days:
+        if wd in days:
             out.append(f"club:{i}:{s}")
-        elif i >= 1 and (i - 1) % 7 in days:
+        elif i >= 1 and (wd - 1) % 7 in days:
             out.append(f"club:{i - 1}:{s}")
     return out
 
 
 def club_delivers_on(started_at: datetime, tz: str, plan: str, now: datetime, ahead: int = 0) -> bool:
     i = funnel_day(started_at, now, tz) - 1 + ahead
-    return i >= 0 and i % 7 in CLUB_WEEK.get(plan, set())
+    wd = (now.astimezone(zone(tz)).weekday() + ahead) % 7
+    return i >= 0 and wd in CLUB_WEEK.get(plan, set())

@@ -139,7 +139,7 @@ async def live_members():
 
 async def run_club(bot: Bot, now: datetime, blocked: set[int],
                    result: Counter) -> tuple[Counter, Counter]:
-    """Тренировки в записи (тариф 6x): каждой — следующая по номеру, 6 дней из 7.
+    """Тренировки в записи (тариф 6x): каждой — следующая по номеру, вт ср пт сб вс.
     Вернёт, какие номера клуба (ещё не загруженные) нужны сегодня и завтра."""
     await db.club_backfill(config.DEFAULT_PLAN)
     members = await db.club_members_active()
