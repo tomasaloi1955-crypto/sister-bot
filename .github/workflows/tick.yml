@@ -5,7 +5,7 @@
 # Повторный тик ничего не дублирует: каждое сообщение уходит один раз.
 #
 # Нужен секрет репозитория TICK_URL (Settings → Secrets and variables
-# → Actions), например: https://sister-bot.onrender.com/tick?key=ВАШ_TICK_KEY
+# → Actions), например: https://sister-bot-e5q4.onrender.com/tick?key=ВАШ_TICK_KEY
 # Можно положить и просто ключ (значение TICK_KEY из Render) — адрес соберётся сам.
 # Пока секрета нет — будильник молча ничего не делает.
 
@@ -37,14 +37,19 @@ jobs:
           fi
           # Убираем пробелы и переводы строк, случайно попавшие при вставке.
           URL="$(printf '%s' "$TICK_URL" | tr -d '[:space:]')"
+          # Бот переехал во второй кабинет Render (09.11.2026): адрес берём отсюда,
+          # из секрета — только ключ (или старый адрес, из которого вынимаем ключ).
+          BOT_URL="https://sister-bot-e5q4.onrender.com"
           case "$URL" in
-            http://*|https://*) ;;
+            http://*|https://*)
+              KEY="$(printf '%s' "$URL" | sed -n 's/.*[?&]key=\([^&]*\).*/\1/p')"
+              [ -n "$KEY" ] && URL="$BOT_URL/tick?key=$KEY" ;;
             *)
               echo "В TICK_URL не адрес, а одно слово — считаю его ключом TICK_KEY."
-              URL="https://sister-bot.onrender.com/tick?key=$URL" ;;
+              URL="$BOT_URL/tick?key=$URL" ;;
           esac
           case "$URL" in */tick\?key=?*) ;; *)
-            echo "::error::В TICK_URL нет '/tick?key=…'. Нужно: https://sister-bot.onrender.com/tick?key=ВАШ_TICK_KEY"
+            echo "::error::В TICK_URL нет '/tick?key=…'. Нужно: https://sister-bot-e5q4.onrender.com/tick?key=ВАШ_TICK_KEY"
             exit 1 ;;
           esac
           echo "::add-mask::$URL"
