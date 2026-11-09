@@ -63,7 +63,8 @@ def live(link: str) -> InlineKeyboardMarkup | None:
 
 def live_choice(day: str) -> InlineKeyboardMarkup:
     return _kb([[B(text="📡 Будет эфир", callback_data=f"adm:lm:{day}:live"),
-                 B(text="🎬 По записи", callback_data=f"adm:lm:{day}:rec")]])
+                 B(text="📡 Эфир для всех", callback_data=f"adm:lm:{day}:all")],
+                [B(text="🎬 Отменить — по записи", callback_data=f"adm:lm:{day}:rec")]])
 
 
 def pay() -> InlineKeyboardMarkup:

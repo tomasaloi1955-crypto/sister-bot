@@ -57,7 +57,7 @@ async def club_welcome(bot: Bot, tg_id: int, plan: str) -> str:
     u = await db.get_user(tg_id)
     live = await messages.live_schedule()
     what = texts.CLUB_WHAT[plan].format(
-        live=messages.live_text(live),
+        **messages.club_vars(live),
         time=texts.SLOTS.get((u["slot"] if u else None) or "evening", texts.SLOTS["evening"]))
     return await messages.say(bot, tg_id, texts.CLUB_START[plan].format(name=messages.name_of(u), what=what),
                               keyboards.live(await messages.live_link()) if plan == "3x" else None)

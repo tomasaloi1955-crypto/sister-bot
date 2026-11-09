@@ -61,7 +61,14 @@ async def send_club_workout(bot: Bot, tg_id: int, n: int, track: bool = True, is
 
 
 async def send_club_repeat(bot: Bot, tg_id: int, n: int) -> str:
-    """Повтор прошлой тренировки клуба №n с усложнением (новой ещё нет)."""
+    """Повтор с усложнением (новой ещё нет): n > 0 — тренировка клуба №n,
+    n < 0 — тренировка бесплатной недели №-n."""
+    if n < 0:
+        w = await db.get_workout(-n, "evening")
+        if w is None:
+            return await say(bot, tg_id, texts.CLUB_MISSING)
+        return await _deliver(bot, tg_id, w, texts.CLUB_REPEAT_FREE_HEADER.format(n=-n),
+                              keyboards.done(-n), True, -n, False, False)
     w = await db.get_club_workout(n)
     if w is None:
         return await say(bot, tg_id, texts.CLUB_MISSING)
@@ -69,14 +76,18 @@ async def send_club_repeat(bot: Bot, tg_id: int, n: int) -> str:
                           True, n, True, False)
 
 
-def next_repeat(loaded: list[int], next_n: int, last_repeat: int) -> int | None:
-    """Какую прошлую тренировку повторить: следующую по кругу после last_repeat
-    среди уже пройденных (номера меньше next_n). None — повторять нечего."""
-    past = sorted(x for x in loaded if x < next_n)
-    if not past:
+def next_repeat(loaded: list[int], next_n: int, last_repeat: int, free=()) -> int | None:
+    """Какую тренировку повторить, когда новой нет: следующую по кругу после
+    last_repeat. Круг — сначала тренировки бесплатной недели (номера со знаком
+    минус: -1 — первая), потом пройденные клуба (номера меньше next_n).
+    None — повторять нечего."""
+    seq = [-d for d in sorted(free)] + sorted(x for x in loaded if x < next_n)
+    if not seq:
         return None
-    later = [x for x in past if x > last_repeat]
-    return later[0] if later else past[0]
+    if last_repeat in seq:
+        return seq[(seq.index(last_repeat) + 1) % len(seq)]
+    later = [x for x in seq if x > last_repeat > 0]
+    return later[0] if later else seq[0]
 
 
 
@@ -242,12 +253,19 @@ def live_text(live: funnel.Live) -> str:
     return texts.LIVE_WHEN.format(days=live.days_text, time=live.time)
 
 
+def club_vars(live: funnel.Live) -> dict:
+    """Подстановки о расписании клуба: {live} — эфиры с временем, {live_days} — дни
+    эфиров (дни записей «3 раза»), {rec_days} — дни записей «5 раз»."""
+    return {"live": live_text(live), "live_days": live.days_text,
+            "rec_days": funnel.rec_days_text("6x", live.days)}
+
+
 def local_time(start, tz: str | None) -> str:
     return start.astimezone(funnel.zone(tz or config.DEFAULT_TZ)).strftime("%H:%M")
 
 
 async def offer_vars() -> dict:
-    return {**plan_prices(), "live": live_text(await live_schedule())}
+    return {**plan_prices(), **club_vars(await live_schedule())}
 
 
 async def send_live_reminder(bot: Bot, m, kind: str, start, link: str) -> str:

@@ -112,11 +112,13 @@ def plan(p: Person, now: datetime) -> list[Action]:
 
 
 # ─────────────────────────────── клуб ───────────────────────────────
-# Тариф 3x «3 раза в неделю» — 3 тренировки в неделю (дни — /live): обычно бот
-# лично присылает тренировку в записи, а иногда тренер проводит живой эфир в
-# группе клуба (/live live или кнопка утром) — тогда бот напоминает об эфире.
-# Тариф 6x («5 раз в неделю») — эфиров нет: бот лично присылает тренировку в записи
-# вт, ср, пт, сб, вс (CLUB_WEEK), видео удаляется через MEDIA_TTL_HOURS.
+# Дни эфиров — /live (обычно ср, пт, вс).
+# Тариф 6x «5 раз в неделю» (код в базе остался 6x): вт ср пт сб вс. В дни эфиров —
+# живой эфир в группе клуба (бот напоминает); тренер отменила или эфир не начался —
+# бот лично присылает тренировку в записи. В остальные дни (вт, сб) — запись.
+# Тариф 3x «3 раза в неделю»: в дни эфиров — тренировка в записи лично, а живой
+# эфир — только если тренер позвала и их (/live all).
+# Видео удаляется из чата через MEDIA_TTL_HOURS.
 WEEKDAYS = ("пн", "вт", "ср", "чт", "пт", "сб", "вс")
 _DAY_NAMES = ("понедельник", "вторник", "среда", "четверг", "пятница", "суббота", "воскресенье")
 REST_WEEKDAY = 6                                        # воскресенье
@@ -164,19 +166,24 @@ def live_start(live: Live, day) -> datetime:
 
 
 def live_today(live: Live, now: datetime):
-    """Дата сегодняшнего эфира (по часовому поясу тренера) или None, если эфира нет."""
+    """Дата сегодня (по часовому поясу тренера), если сегодня день эфира по расписанию,
+    иначе None. Отпуск (/live off) и отмена (/live skip) день не убирают — в такой
+    день все получают запись (см. live_cancelled)."""
     today = now.astimezone(zone(config.DEFAULT_TZ)).date()
-    if not live.on or today.weekday() not in live.days or today.isoformat() in live.skip:
-        return None
-    return today
+    return today if today.weekday() in live.days else None
+
+
+def live_cancelled(live: Live, today, mode: str | None) -> bool:
+    """Сегодняшний эфир отменён: отпуск, /live skip или тренер выбрала «по записи»."""
+    return not live.on or today.isoformat() in live.skip or mode == "rec"
 
 
 def live_actions(live: Live, now: datetime, mode: str | None = None,
                  started: bool = False) -> list[tuple[str, str, datetime]]:
-    """Что положено участницам тарифа 3x сейчас: [(ключ, вид, начало эфира)].
+    """Что положено сейчас в день эфира группе участниц: [(ключ, вид, начало эфира)].
 
-    mode — решение тренера на сегодня: "live" — сегодня эфир, иначе (по умолчанию)
-    — по записи: запись уходит с утреннего часа LIVE_REMIND_HOUR. Вид: day — утром «сегодня эфир»,
+    mode — что сегодня у этой группы: "live" — эфир, иначе (по умолчанию) — по
+    записи: запись уходит с утреннего часа LIVE_REMIND_HOUR. Вид: day — утром «сегодня эфир»,
     soon — за час «скоро начинаем», rec — тренировка в записи. Если эфир так и не
     начался (started — в группе клуба не открыли видеочат) через LIVE_GRACE_MIN
     после начала, — тоже rec: «сегодня занимаемся по записи»."""
@@ -214,17 +221,19 @@ def next_live(live: Live, now: datetime) -> datetime | None:
     return None
 
 
-# Тренировки в записи по своим дням недели (по часовому поясу участницы) — тариф 6x
-# (код в базе остался 6x, по сути «5 раз в неделю»): вт, ср, пт, сб, вс; пн и чт — отдых.
-# Тариф 3x получает записи отдельно, по дням /live (tick.run_live).
-CLUB_WEEK = {"6x": {1, 2, 4, 5, 6}}                     # 0 — понедельник
+# Дни тренировок по дням недели (по часовому поясу участницы): 6x — вт ср пт сб вс,
+# пн и чт — отдых. Из них дни эфиров (/live) идут через tick.run_live, а здесь —
+# только дни записей (club_keys с live_days). Тариф 3x — целиком через run_live.
+CLUB_WEEK = {"6x": frozenset({1, 2, 4, 5, 6})}          # 0 — понедельник
 
 
-def club_keys(started_at: datetime, tz: str, plan: str, slot: str | None, now: datetime) -> list[str]:
+def club_keys(started_at: datetime, tz: str, plan: str, slot: str | None, now: datetime,
+              live_days: frozenset = frozenset()) -> list[str]:
     """Ключи рассылки тренировок в записи, положенные сейчас (для журнала sends).
-    В день отдыха после тренировочного — тот же ключ ещё раз: досылка, если
+    В день отдыха после дня записи — тот же ключ ещё раз: досылка, если
     вчера не ушло (журнал sends не даст прислать дважды)."""
-    days = CLUB_WEEK.get(plan)
+    week = CLUB_WEEK.get(plan, frozenset())
+    days = week - live_days
     local = now.astimezone(zone(tz))
     i = funnel_day(started_at, now, tz) - 1           # 0 — день вступления в клуб
     if not days or local.hour >= config.QUIET_HOUR or i < 0:
@@ -236,12 +245,19 @@ def club_keys(started_at: datetime, tz: str, plan: str, slot: str | None, now: d
             continue
         if wd in days:
             out.append(f"club:{i}:{s}")
-        elif i >= 1 and (wd - 1) % 7 in days:
+        elif wd not in week and i >= 1 and (wd - 1) % 7 in days:
             out.append(f"club:{i - 1}:{s}")
     return out
 
 
-def club_delivers_on(started_at: datetime, tz: str, plan: str, now: datetime, ahead: int = 0) -> bool:
+def club_delivers_on(started_at: datetime, tz: str, plan: str, now: datetime, ahead: int = 0,
+                     live_days: frozenset = frozenset()) -> bool:
+    """В этот день ей положена запись по дням записей (не эфиров)."""
     i = funnel_day(started_at, now, tz) - 1 + ahead
     wd = (now.astimezone(zone(tz)).weekday() + ahead) % 7
-    return i >= 0 and wd in CLUB_WEEK.get(plan, set())
+    return i >= 0 and wd in CLUB_WEEK.get(plan, frozenset()) - live_days
+
+
+def rec_days_text(plan: str, live_days: frozenset) -> str:
+    """«Вт, Сб» — дни записей тарифа (без дней эфиров)."""
+    return ", ".join(WEEKDAYS[d].capitalize() for d in sorted(CLUB_WEEK.get(plan, frozenset()) - live_days))

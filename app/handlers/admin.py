@@ -28,7 +28,7 @@ HELP = (
     "<b>Админка</b>\n\n"
     "/stats — статистика и источники\n"
     "/upload 2 — загрузить тренировку №2 бесплатной недели (всего 3)\n"
-    "/live — клуб «3 раза в неделю» (обычно записи): /live ср пт вс 19:00, /live live — сегодня эфир, /live link …, /live off\n"
+    "/live — эфиры клуба: /live ср пт вс 19:00, /live rec — сегодня без эфира, /live all — эфир и для «3 раза», /live skip, /live off\n"
     "Тренировка в записи: просто пришлите видео — номер бот даст сам\n"
     "/upload_club 5 — заменить тренировку клуба №5\n"
     "/tofree 8 1 — поставить тренировку клуба №8 вместо тренировки №1 бесплатной недели\n"
@@ -286,7 +286,7 @@ async def live_cmd(message: Message, command: CommandObject, bot: Bot) -> None:
     word = arg.split()[0].lower() if arg else ""
     if word in ("on", "off"):
         await db.set_setting("live_on", word)
-    elif word in ("rec", "live"):
+    elif word in ("rec", "live", "all"):
         await message.answer(await _set_today_mode(bot, word))
         return
     elif word == "link":
@@ -313,27 +313,27 @@ async def live_cmd(message: Message, command: CommandObject, bot: Bot) -> None:
 
 
 async def _set_today_mode(bot: Bot, mode: str, day: str | None = None) -> str:
-    """Сегодня эфир (live) или по записи (rec, так по умолчанию). По записи — сразу
-    прогнать тик: сёстры «3 раза в неделю» получат тренировку, не дожидаясь будильника."""
+    """Решение тренера на сегодняшний день эфира: live — эфир для «5 раз»,
+    all — эфир и для «3 раза», rec — эфир отменён, «5 раз» получают запись.
+    После решения сразу прогоняем тик — сёстрам не ждать будильника."""
     now = datetime.now(timezone.utc)
     today = funnel.live_today(await messages.live_schedule(), now)
     if today is None or (day and day != today.isoformat()):
-        return "Сегодня у «3 раза в неделю» тренировки по расписанию нет (/live)."
-    rec_sent = await db.already_sent_any(f"liverec:{today}")
-    if mode == "rec" and rec_sent:
-        return "Сёстрам «3 раза в неделю» сегодняшняя запись уже отправлена 🤍"
-    await db.set_setting(f"live_mode:{today}", mode)
-    if mode == "live":
-        if rec_sent:
-            return ("📡 Отлично, сегодня эфир! Запись сёстрам уже ушла утром — "
-                    "дополнительно напомню им про эфир за час до начала.")
-        return "📡 Отлично, сегодня эфир — напомню сёстрам утром и за час до начала."
+        return "Сегодня эфира по расписанию нет (/live)."
+    await db.set_setting(f"live_mode:{today}", "rec" if mode == "rec" else "live")
+    await db.set_setting(f"live_all:{today}", "1" if mode == "all" else "0")
     from .. import tick
     task = asyncio.create_task(tick.run(bot))
     _background.add(task)
     task.add_done_callback(_background.discard)
-    return ("🎬 Сегодня по записи — сёстры «3 раза в неделю» получат тренировку "
-            f"{'сейчас' if now.astimezone(funnel.zone(config.DEFAULT_TZ)).hour >= config.LIVE_REMIND_HOUR else f'в {config.LIVE_REMIND_HOUR}:00'} "
+    if mode == "live":
+        return "📡 Отлично, сегодня эфир для «5 раз в неделю» — напомню им утром и за час до начала."
+    if mode == "all":
+        return ("📡 Отлично, сегодня эфир для всех — напомню и «5 раз», и «3 раза в неделю» "
+                "(«3 раза» запись тоже получат).")
+    when = ("сейчас" if now.astimezone(funnel.zone(config.DEFAULT_TZ)).hour >= config.LIVE_REMIND_HOUR
+            else f"в {config.LIVE_REMIND_HOUR}:00")
+    return (f"🎬 Эфир отменён — сёстры «5 раз в неделю» получат тренировку в записи {when} "
             "(следующую по номеру; если новой нет — повтор с усложнением).")
 
 
@@ -352,25 +352,33 @@ async def _live_status() -> str:
     nxt = funnel.next_live(live, now)
     today = funnel.live_today(live, now)
     mode = await db.get_setting(f"live_mode:{today}") if today else None
+    invite3 = today is not None and await db.get_setting(f"live_all:{today}") == "1"
+    if today and funnel.live_cancelled(live, today, mode):
+        today_text = "🎬 эфира нет — у всех запись"
+    elif today:
+        today_text = "📡 эфир для всех" if invite3 else "📡 эфир для «5 раз», у «3 раза» запись"
     slots = await db.slot_counts()
     day, eve = slots.get("day", (0, 0)), slots.get("evening", (0, 0))
     return (
-        "🌿 <b>Клуб «3 раза в неделю»</b> " + ("" if live.on else "— <b>на паузе</b> (/live on)") + "\n"
-        f"Дни тренировок: {live.days_text}. Обычно — тренировка в записи (приходит в "
-        f"{config.LIVE_REMIND_HOUR}:00), иногда — живой эфир в {live.time}, если вы его объявите.\n"
-        + (f"Ближайший день: {nxt:%d.%m}\n" if nxt else "")
-        + (f"Сегодня: {'📡 эфир' if mode == 'live' else '🎬 по записи'}\n" if today else "")
-        + "Ссылка на эфир: " + (link or "не указана — сёстры увидят «заходи в группу клуба»") + "\n"
-        "«5 раз в неделю» получает только записи (вт, ср, пт, сб, вс).\n"
-        f"Объявили эфир, а он не начался через {config.LIVE_GRACE_MIN} мин — сёстрам уходит запись.\n\n"
+        "📡 <b>Эфиры и записи клуба</b> " + ("" if live.on else "— <b>эфиры на паузе</b> (/live on)") + "\n"
+        f"Эфиры: {messages.live_text(live)}\n"
+        + (f"Ближайший эфир: {nxt:%d.%m} в {nxt:%H:%M}\n" if nxt else "")
+        + (f"Сегодня: {today_text}\n" if today else "")
+        + "Ссылка на эфир: " + (link or "не указана — сёстры увидят «заходи в группу клуба»") + "\n\n"
+        f"🔥 «5 раз в неделю»: эфиры в эти дни + записи в {funnel.rec_days_text('6x', live.days) or '—'}. "
+        f"Эфир отменён или не начался через {config.LIVE_GRACE_MIN} мин — им уходит запись.\n"
+        f"🌿 «3 раза в неделю»: в дни эфиров — запись в {config.LIVE_REMIND_HOUR}:00; на эфир — "
+        "только если позовёте (<code>/live all</code>).\n"
+        "Новой записи нет — бот повторяет по кругу: бесплатная неделя и пройденные клуба.\n\n"
         "Сёстрам удобнее (по анкете):\n"
         f"• {texts.SLOTS.get('day', 'днём')}: {day[0]} всего, из них в клубе {day[1]}\n"
         f"• {texts.SLOTS.get('evening', 'вечером')}: {eve[0]} всего, из них в клубе {eve[1]}\n\n"
         "Поменять: <code>/live ср пт вс 19:00</code>\n"
         "Ссылка на группу: <code>/live link https://t.me/+…</code> (убрать: <code>/live link -</code>)\n"
-        "Сегодня будет живой эфир: <code>/live live</code> (передумали: <code>/live rec</code>)\n"
-        "Отменить ближайшую тренировку совсем (без записи): <code>/live skip</code>\n"
-        "Отпуск — без напоминаний: <code>/live off</code>, вернуться: <code>/live on</code>")
+        "Сегодня эфир: <code>/live live</code>, эфир и для «3 раза»: <code>/live all</code>\n"
+        "Сегодня эфира не будет — всем запись: <code>/live rec</code>\n"
+        "Отменить ближайший эфир заранее (сёстрам «5 раз» напишу, в тот день — запись): <code>/live skip</code>\n"
+        "Отпуск — без эфиров, всем записи: <code>/live off</code>, вернуться: <code>/live on</code>")
 
 
 async def _live_skip(message: Message, bot: Bot) -> None:
@@ -384,7 +392,7 @@ async def _live_skip(message: Message, bot: Bot) -> None:
     skip = {d for d in live.skip if d >= today} | {start.date().isoformat()}
     await db.set_setting("live_skip", " ".join(sorted(skip)))
     nxt = funnel.next_live(await messages.live_schedule(), now)
-    members = [m for m in await db.club_members_active() if m["plan"] != "6x"]
+    members = [m for m in await db.club_members_active() if m["plan"] == "6x"]
     await message.answer(f"Эфир {start:%d.%m} в {start:%H:%M} отменён, предупреждаю сестёр ({len(members)}).")
 
     async def notify() -> None:

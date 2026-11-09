@@ -102,6 +102,14 @@ def test_club_records_only_6x():
     assert six[:8] == [[], ["club:1:day"], ["club:2:day"], ["club:3:day"], ["club:3:day"],
                        ["club:5:day"], ["club:6:day"], ["club:6:day"]]
     assert {k for ks in six for k in ks} == {f"club:{i}:day" for i in (1, 2, 3, 5, 6, 8, 9, 10, 12, 13)}
+    # дни эфиров (ср пт вс) идут через run_live — здесь остаются записи вт и сб
+    ld = frozenset({2, 4, 6})
+    rec = [funnel.club_keys(START, "Asia/Almaty", "6x", "day", at(d, 12), ld) for d in range(1, 15)]
+    # чт1 пт2 сб3 вс4 пн5 вт6 ср7 чт8 пт9 сб10
+    assert rec[:10] == [[], [], ["club:2:day"], [], [], ["club:5:day"], [], [], [], ["club:9:day"]]
+    assert funnel.rec_days_text("6x", ld) == "Вт, Сб"
+    assert not funnel.club_delivers_on(START, "Asia/Almaty", "6x", at(2, 12), live_days=ld)   # пт — эфир
+    assert funnel.club_delivers_on(START, "Asia/Almaty", "6x", at(3, 12), live_days=ld)       # сб
     assert funnel.club_keys(START, "Asia/Almaty", "6x", "day", at(2, 10)) == []        # до 11:00 — рано
     assert funnel.club_keys(START, "Asia/Almaty", "6x", "day", at(2, 22)) == []        # тихий час
     assert funnel.club_delivers_on(START, "Asia/Almaty", "6x", at(2, 12))               # пт
@@ -146,10 +154,15 @@ def test_live_actions():
     assert kinds(at(fri, 20), L) == ["rec"]
     assert kinds(at(fri, 20), L, started=True) == []         # эфир идёт — запись не нужна
     assert kinds(at(fri, 22), L) == []                       # тихий час
+    # отпуск и отмена дня не убирают — в такой день всем запись
     off = funnel.Live(days=live.days, hour=19, on=False)
-    assert funnel.live_actions(off, at(fri, 18)) == []
     skipped = funnel.Live(days=live.days, hour=19, skip=frozenset({"2026-10-02"}))
-    assert funnel.live_actions(skipped, at(fri, 20)) == []
+    today = funnel.live_today(live, at(fri, 12))
+    assert funnel.live_cancelled(off, today, None)
+    assert funnel.live_cancelled(skipped, today, None)
+    assert funnel.live_cancelled(live, today, "rec")
+    assert not funnel.live_cancelled(live, today, None)
+    assert not funnel.live_cancelled(live, today, "live")
     assert funnel.next_live(skipped, at(fri, 12)).day == 5       # следующий — пн 5 октября
     assert funnel.next_live(live, at(fri, 12)).day == 2
 
@@ -160,3 +173,9 @@ def test_club_repeat_cycle():
     assert next_repeat([1, 2, 3, 4], 5, 4) == 1          # по кругу
     assert next_repeat([1, 2, 7], 3, 2) == 1             # только пройденные (< следующей)
     assert next_repeat([], 1, 0) is None
+    # с бесплатной неделей: сначала она (-1, -2, -3), потом пройденные клуба, по кругу
+    assert next_repeat([1, 2], 3, 0, {1, 2, 3}) == -1
+    assert next_repeat([1, 2], 3, -1, {1, 2, 3}) == -2
+    assert next_repeat([1, 2], 3, -3, {1, 2, 3}) == 1
+    assert next_repeat([1, 2], 3, 2, {1, 2, 3}) == -1        # по кругу
+    assert next_repeat([], 1, 0, {1, 2, 3}) == -1            # клуба ещё нет — только бесплатные
