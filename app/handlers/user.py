@@ -63,8 +63,8 @@ async def start(message: Message, command: CommandObject, bot: Bot) -> None:
         await _notify_new_lead(message.bot, u)
     if u["started_at"]:
         day = funnel.funnel_day(u["started_at"], _now(), u["tz"])
-        await message.answer(texts.WELCOME_BACK.format(name=name, day=day),
-                             reply_markup=keyboards.free_chat())
+        text = texts.WELCOME_BACK if day <= max(funnel.WORKOUT_DAYS) + 2 else texts.WELCOME_BACK_DONE
+        await message.answer(text.format(name=name, day=day), reply_markup=keyboards.free_chat())
         return
     await message.answer(texts.WELCOME.format(name=name, coach=config.COACH_NAME))
     await message.answer(texts.Q_GOAL, reply_markup=keyboards.choices("q:goal", texts.GOALS))
