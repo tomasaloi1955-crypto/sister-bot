@@ -23,10 +23,10 @@ def test_report():
     rows = [
         {"tg_id": 1, "club": True, "num": 12, "created_at": at, "first_name": "Надя", "username": "nadya"},
         {"tg_id": 2, "club": False, "num": 3, "created_at": at, "first_name": "Аня", "username": None},
-        {"tg_id": 1, "club": False, "num": 5, "created_at": at, "first_name": "Надя", "username": "nadya"},
+        {"tg_id": 1, "club": False, "num": 1, "created_at": at, "first_name": "Надя", "username": "nadya"},
     ]
     text = today_report(T, rows, "Сегодня")
     assert "нажали «Сделала»: 2 (отметок 3)" in text
-    assert "Надя @nadya — клуб №12" in text and "бесплатная №3 (" in text
-    assert "Аня — бесплатная №2" in text
+    assert "Надя @nadya — клуб №12" in text and "бесплатная №1 (" in text
+    assert "Аня — бесплатная №3" in text
     assert "никто" in today_report(T, [], "Сегодня")
