@@ -183,3 +183,7 @@ CREATE TABLE IF NOT EXISTS payments (
     raw         JSONB
 );
 CREATE INDEX IF NOT EXISTS payments_tg_idx ON payments (tg_id);
+
+-- Отзывы, которые тренер добавила сама из канала (/addreview): без сестры в боте, с подписью
+ALTER TABLE feedback ALTER COLUMN tg_id DROP NOT NULL;
+ALTER TABLE feedback ADD COLUMN IF NOT EXISTS author TEXT;

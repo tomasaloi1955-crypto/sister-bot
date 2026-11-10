@@ -302,6 +302,8 @@ async def club(event: Message | CallbackQuery, bot: Bot) -> None:
         # Купившей — свежая ссылка (старая могла истечь или потеряться).
         await payments.send_club_link(bot, u["tg_id"], await db.paid_plan(u["tg_id"]), again=True)
         return
+    if fu.id not in config.ADMIN_IDS:
+        await db.claim_send(u["tg_id"], "club_click")     # первый раз открыла тарифы — тик сообщит тренеру
     await messages.send_club_offer(bot, u)
 
 
@@ -375,6 +377,41 @@ async def unknown_command(message: Message) -> None:
 
 # ─────────────────────────────── свободный текст ───────────────────────────────
 
+# «сделала», «готово», «+», «✅» — как кнопка «Сделала» под последней тренировкой
+DONE_WORDS = re.compile(r"^\W*(\+|✅|👍|готово|сделала|сделано|сделала тренировку|выполнила|done)\W*$",
+                        re.IGNORECASE)
+
+
+async def _mark_done_by_text(message: Message, u) -> bool:
+    """Засчитать последнюю полученную тренировку. False — непонятно, какую (тогда — тренеру)."""
+    cm = await db.club_member(u["tg_id"])
+    if cm and cm["active"] and cm["next_n"] > 1:
+        new, total = await db.club_mark_done(u["tg_id"], cm["next_n"] - 1)
+    else:
+        d = funnel.funnel_day(u["started_at"], _now(), u["tz"])
+        n = funnel.workouts_received(d)
+        if n == 0 or d > funnel.SALE_DAYS[-1]:
+            return False
+        new, total = await db.mark_done(u["tg_id"], n)
+    await message.answer((texts.DONE_REPLY if new else texts.DONE_REPLY_AGAIN).format(count=total))
+    return True
+
+
+async def forward_to_coach(message: Message, bot: Bot, u) -> None:
+    """Сообщение сестры, которое бот не понял, — тренеру, с кнопкой «Ответить»."""
+    if message.from_user.id in config.ADMIN_IDS:      # тренер пишет сама себе — не пересылаем
+        await message.answer(texts.DEFAULT_REPLY)
+        return
+    who = (f'<a href="tg://user?id={u["tg_id"]}">{messages.name_of(u)}</a>'
+           + (f" @{html.escape(u['username'])}" if u["username"] else ""))
+    d = funnel.funnel_day(u["started_at"], _now(), u["tz"])
+    await messages.notify_admins(
+        bot, f"💬 Сообщение от {who} (id {u['tg_id']}, день {d}"
+             + (", 💰 купила" if u["paid_at"] else "") + f"):\n\n«{html.escape(message.text[:3000])}»",
+        keyboards.reply_to(u["tg_id"]))
+    await message.answer(texts.FORWARDED.format(coach=html.escape(config.COACH_NAME)))
+
+
 @router.message(F.text & ~F.text.startswith("/"))
 async def free_text(message: Message, bot: Bot) -> None:
     u = await db.get_user(message.from_user.id)
@@ -385,7 +422,9 @@ async def free_text(message: Message, bot: Bot) -> None:
         return
     day = u["awaiting_feedback_day"]
     if day is None:
-        await message.answer(texts.DEFAULT_REPLY)
+        if DONE_WORDS.match(message.text) and await _mark_done_by_text(message, u):
+            return
+        await forward_to_coach(message, bot, u)
         return
     fid = await db.add_feedback_text(u["tg_id"], day, message.text[:2000])
     await db.set_field(u["tg_id"], "awaiting_feedback_day", None)

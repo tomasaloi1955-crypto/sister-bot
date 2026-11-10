@@ -41,6 +41,7 @@ HELP = (
     "/broadcast — рассылка по сегменту\n"
     "/reweek — предложить неделю бесплатных тренировок тем, кто нажал /start, но не прошёл анкету\n"
     "/reviews — модерация отзывов\n"
+    "/addreview Амина: текст — добавить отзыв из канала (бот покажет его новым сёстрам)\n"
     "/list — последние 30 сестёр: id, день, сколько сделала, купила ли\n"
     "/today — кто сегодня нажал «Сделала» и какую тренировку; /today вчера или /today 08.11 — за другой день\n"
     "/who 123456789 или /who @ник — где сейчас сестра: анкета, тренировки, оплата\n"
@@ -59,6 +60,10 @@ HELP = (
 
 class Upload(StatesGroup):
     content = State()
+    text = State()
+
+
+class Reply(StatesGroup):
     text = State()
 
 
@@ -623,6 +628,24 @@ async def _show_next_review(message: Message) -> None:
                          reply_markup=keyboards.moderate(f["id"]))
 
 
+@router.message(Command("addreview"))
+async def add_review(message: Message, command: CommandObject) -> None:
+    raw = (command.args or "").strip()
+    name, sep, text = raw.partition(":")
+    if not sep or len(name) > 40:          # без имени — «сестра»
+        name, text = "", raw
+    name, text = name.strip(), text.strip()
+    if len(text) < 3:
+        await message.answer("Формат: <code>/addreview Амина: стало меньше болеть спина</code>\n"
+                             "Имя можно не писать: <code>/addreview текст отзыва</code>")
+        return
+    fid = await db.add_manual_review(name or None, text[:2000])
+    await message.answer(f"✅ Отзыв добавлен — бот покажет его сёстрам на 4-й день:\n\n"
+                         f"«{html.escape(text[:2000])}»\n— {html.escape(name or 'сестра')}",
+                         reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+                             InlineKeyboardButton(text="↩️ Убрать", callback_data=f"adm:fb:0:{fid}")]]))
+
+
 @router.message(Command("reviews"))
 async def reviews(message: Message) -> None:
     await _show_next_review(message)
@@ -635,6 +658,32 @@ async def moderate(cb: CallbackQuery) -> None:
     await cb.answer("Одобрен" if ok == "1" else "Отклонён")
     await cb.message.edit_text(cb.message.html_text + ("\n\n✅ Одобрен" if ok == "1" else "\n\n❌ Отклонён"))
     await _show_next_review(cb.message)
+
+
+# ─────────────────────────────── ответ сестре ───────────────────────────────
+
+@router.callback_query(F.data.startswith("adm:reply:"))
+async def reply_start(cb: CallbackQuery, state: FSMContext) -> None:
+    tg_id = int(cb.data.split(":")[2])
+    await state.set_state(Reply.text)
+    await state.update_data(reply_to=tg_id)
+    await cb.answer()
+    await cb.message.answer("✍️ Напишите ответ одним сообщением — текст, голосовое или фото. "
+                            "Бот перешлёт его сестре от вашего имени.\n/cancel — передумали")
+
+
+@router.message(StateFilter(Reply.text), ~F.text.startswith("/"))
+async def reply_send(message: Message, state: FSMContext, bot: Bot) -> None:
+    tg_id = (await state.get_data()).get("reply_to")
+    await state.clear()
+    if not tg_id:
+        return
+    status = await messages.say(bot, tg_id, texts.COACH_REPLY.format(coach=html.escape(config.COACH_NAME)))
+    if status == sender.OK:
+        status = await sender.call(tg_id, lambda: bot.copy_message(tg_id, message.chat.id, message.message_id))
+    await message.answer("✅ Отправлено" if status == sender.OK
+                         else "⛔ Сестра заблокировала бота — ответить можно только напрямую в Telegram."
+                         if status == sender.BLOCKED else "❌ Не получилось отправить, попробуйте ещё раз.")
 
 
 # ─────────────────────────────── оплаты ───────────────────────────────
@@ -657,6 +706,7 @@ async def payment_decision(cb: CallbackQuery, bot: Bot) -> None:
 
 
 SEND_NAMES = {"workout": "тренировка", "club": "тренировка клуба", "checkin": "«Как ощущения?»", "nudge": "напоминание",
+              "ask": "«Получилось?»", "club_click": "открыла тарифы клуба",
               "warm_reviews": "отзывы", "warm_stats": "итоги недели", "sale": "предложение клуба",
               "post": "письмо после недели"}
 

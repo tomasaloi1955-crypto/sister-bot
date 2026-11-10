@@ -291,13 +291,19 @@ async def send_action(bot: Bot, u, a: funnel.Action) -> str:
                          keyboards.checkin(a.day))
     if a.kind == "nudge":
         return await say(bot, tg_id, texts.NUDGE.format(name=name), keyboards.done(funnel.NUDGE_DAYS[a.day]))
+    if a.kind == "ask":
+        return await say(bot, tg_id, texts.ASK.format(name=name), keyboards.done(a.day))
     if a.kind == "warm_stats":
         done = await db.done_count(tg_id)
         days = funnel.workouts_received(a.day)
+        # видео 3-й тренировки к этому дню могло исчезнуть вместе с кнопкой — даём отметить здесь
+        last = funnel.WORKOUTS
+        kb = None if await db.has_done(tg_id, last) else keyboards.done(last)
         if done == 0:
-            return await say(bot, tg_id, texts.WARM_STATS_ZERO.format(name=name))
+            return await say(bot, tg_id, texts.WARM_STATS_ZERO.format(name=name), kb)
         return await say(bot, tg_id, texts.WARM_STATS.format(
-            name=name, done=done, days=days, minutes=done * texts.MINUTES_PER_WORKOUT))
+            name=name, done=done, days=days, minutes=done * texts.MINUTES_PER_WORKOUT,
+            unmarked=texts.WARM_STATS_UNMARKED if kb else ""), kb)
     if a.kind == "warm_reviews":
         rows = await db.approved_reviews(tg_id)
         if not rows:

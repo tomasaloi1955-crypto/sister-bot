@@ -51,8 +51,15 @@ def test_quiet_hour_sends_nothing():
 
 def test_checkin_after_third_workout():
     p = person(last_done_day=3)
-    assert "checkin:5" in keys(p, at(5, 20))
-    assert not any(k.startswith("checkin") for k in keys(p, at(5, 19)))
+    assert "checkin:6" in keys(p, at(6, 20))
+    assert not any(k.startswith("checkin") for k in keys(p, at(6, 19)))
+    assert not any(k.startswith("checkin") for k in keys(p, at(5, 21)))
+
+
+def test_ask_if_first_workout_not_done():
+    assert "ask:2" in keys(person(last_done_day=0), at(2, 17))
+    assert not any(k.startswith("ask") for k in keys(person(last_done_day=1), at(2, 17)))
+    assert not any(k.startswith("ask") for k in keys(person(last_done_day=0), at(2, 16)))
 
 
 def test_nudge_if_second_workout_not_done():

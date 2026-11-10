@@ -15,7 +15,7 @@ from datetime import datetime, timedelta, timezone
 from aiogram import Bot
 from aiogram.exceptions import TelegramMigrateToChat
 
-from . import config, db, keyboards, messages, texts
+from . import config, db, funnel, keyboards, messages, texts
 
 log = logging.getLogger(__name__)
 
@@ -72,6 +72,16 @@ async def start_club(bot: Bot, tg_id: int, plan: str | None) -> str | None:
     return None
 
 
+def gift_note(u, now: datetime | None = None) -> str:
+    """Купила в дни подарка (9-й день — предложение, 10-й — до 23:00) — напомнить тренеру."""
+    if not u or u["started_at"] is None:
+        return ""
+    d = funnel.funnel_day(u["started_at"], now or datetime.now(timezone.utc), u["tz"])
+    gift_day = funnel.SALE_DAYS[-1]
+    return ("\n🎁 Купила в дни подарка — если она среди первых 10, ей положены личный план на месяц "
+            "и голосовое от вас.") if gift_day <= d <= gift_day + 1 else ""
+
+
 async def grant_access(bot: Bot, tg_id: int, plan: str | None, via_tribute: bool = False) -> None:
     """Покупка подтверждена: отмечаем, шлём одноразовую ссылку в клуб.
     После отметки paid_at продающие рассылки этой участнице прекращаются."""
@@ -81,7 +91,7 @@ async def grant_access(bot: Bot, tg_id: int, plan: str | None, via_tribute: bool
     tribute_lets_in = via_tribute and not config.PLANS.get(plan or "", config.PLANS[config.DEFAULT_PLAN])["chat"]
     u = await db.get_user(tg_id)
     who = messages.name_of(u) + (f" @{u['username']}" if u and u["username"] else "")
-    note = "" if plan in config.PLANS else "\n⚠️ Тариф не опознан."
+    note = ("" if plan in config.PLANS else "\n⚠️ Тариф не опознан.") + gift_note(u)
     await messages.notify_admins(
         bot, f"💰 Покупка клуба: {who} (id {tg_id}), тариф: {plan_name(plan)}" + note
              + ("" if link or tribute_lets_in else "\n⚠️ Ссылки в канал нет — добавь её в канал вручную."))
@@ -99,7 +109,8 @@ async def mark_club_member(bot: Bot, tg_id: int, plan: str, chat_id: int, notify
     u = await db.get_user(tg_id)
     who = messages.name_of(u) + (f" @{u['username']}" if u and u["username"] else "")
     await messages.notify_admins(bot, f"💰 В канале клуба новая участница: {who} (id {tg_id}), "
-                                      f"тариф: {plan_name(plan)}. Продающие сообщения ей больше не придут.")
+                                      f"тариф: {plan_name(plan)}. Продающие сообщения ей больше не придут."
+                                      + gift_note(u))
     return status
 
 

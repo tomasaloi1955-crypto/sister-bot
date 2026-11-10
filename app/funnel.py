@@ -23,8 +23,9 @@ from . import config
 # Бесплатная неделя: 3 тренировки через день (между ними — дни отдыха).
 WORKOUT_DAYS = {1: 1, 3: 2, 5: 3}        # день воронки → номер тренировки
 WORKOUTS = len(WORKOUT_DAYS)
-CHECKIN_DAYS = (5,)                      # «Как ощущения?» вечером после 3-й тренировки
+CHECKIN_DAYS = (6,)                      # «Как ощущения?» — вечер следующего дня после 3-й тренировки
 NUDGE_DAYS = {4: 2}                      # день → к этой тренировке пора было нажать «Сделала»
+ASK_DAYS = {2: 1}                        # день → «Получилось сделать тренировку №…?», если не отмечена
 WARM_DAYS = {4: "warm_reviews", 6: "warm_stats"}
 SALE_DAYS = (7, 8, 9)                    # предложение, возражения, последний день
 POST_DAYS = (12, 16, 24)
@@ -44,7 +45,7 @@ class Person:
 @dataclass
 class Action:
     key: str                             # уникальный ключ для таблицы sends
-    kind: str                            # workout | checkin | nudge | warm_* | sale | post
+    kind: str                            # workout | checkin | ask | nudge | warm_* | sale | post
     day: int                             # день воронки; у workout — номер тренировки
     slot: str | None = None
     extra: dict = field(default_factory=dict)
@@ -96,6 +97,8 @@ def plan(p: Person, now: datetime) -> list[Action]:
                     out.append(Action(f"workout:{wd}:{s}", "workout", WORKOUT_DAYS[wd], s))
     if d in CHECKIN_DAYS and hour >= config.CHECKIN_HOUR:
         out.append(Action(f"checkin:{d}", "checkin", d))
+    if d in ASK_DAYS and p.last_done_day < ASK_DAYS[d] and hour >= config.NUDGE_HOUR:
+        out.append(Action(f"ask:{d}", "ask", ASK_DAYS[d]))
     if d in NUDGE_DAYS and p.last_done_day < NUDGE_DAYS[d] and hour >= config.NUDGE_HOUR:
         out.append(Action(f"nudge:{d}", "nudge", d))
 

@@ -2,11 +2,13 @@
 from __future__ import annotations
 
 import asyncio
+import html
 import logging
 from collections import Counter
 from datetime import datetime, timedelta, timezone
 
 from aiogram import Bot
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from . import config, db, funnel, keyboards, messages, payments, sender, texts, tribute_router
 
@@ -54,6 +56,8 @@ async def run(bot: Bot, now: datetime | None = None) -> dict:
         await run_live(bot, now, live, blocked, result)
         club_today, club_tomorrow = await run_club(bot, now, blocked, result)
         await alert_missing(bot, users, loaded, now, club_today, club_tomorrow)
+        await alert_club_clicks(bot, now)
+        await alert_warm(bot, users, now)
         result["tribute_resent"] = await tribute_router.retry_due(bot)
         result["videos_removed"] = await messages.cleanup_media(bot)
         log.info("Тик: участниц %s, отправлено %s", len(users), dict(result))
@@ -230,3 +234,64 @@ async def alert_missing(bot: Bot, users, loaded: set[int], now: datetime,
         bot, "🎬 Нужно загрузить тренировки:\n" + "\n".join(lines)
         + f"\n\nПока видео нет, участницы ждут его до {config.MISSING_HOUR}:00, "
           "потом получат мягкое сообщение «день отдыха».\nЗагрузка: /upload 2")
+
+
+def _who(u) -> str:
+    return (f'<a href="tg://user?id={u["tg_id"]}">{messages.name_of(u)}</a>'
+            + (f" @{html.escape(u['username'])}" if u["username"] else "") + f" (id {u['tg_id']})")
+
+
+async def alert_club_clicks(bot: Bot, now: datetime) -> None:
+    """Открыла тарифы клуба больше часа назад и не купила — тренеру, чтобы написала лично."""
+    local = now.astimezone(funnel.zone(config.DEFAULT_TZ))
+    if not (config.ADMIN_MORNING_HOUR <= local.hour < config.QUIET_HOUR):
+        return
+    for u in await db.club_clicks_unpaid(now - timedelta(days=2), now - timedelta(hours=1)):
+        if await db.claim_alert(f"clubclick:{u['tg_id']}"):
+            await messages.notify_admins(
+                bot, f"💎 {_who(u)} открыла тарифы клуба, но пока не оплатила.\n"
+                     "Самое время написать ей лично: может, есть вопрос или сомнение.",
+                keyboards.reply_to(u["tg_id"]))
+
+
+def warm_lines(users, info: dict, now: datetime) -> list[tuple[int, str, object]]:
+    """Сёстры, которым сегодня пришло предложение клуба (день 7): самые тёплые — сверху."""
+    rows = []
+    for u in users:
+        if u["paid_at"] is not None or funnel.funnel_day(u["started_at"], now, u["tz"]) != funnel.SALE_DAYS[0]:
+            continue
+        w = info.get(u["tg_id"])
+        done, mood, clicked = (w["done"], w["mood"], w["clicked"]) if w else (0, None, False)
+        score = done + (2 if clicked else 0) + (1 if mood else 0)
+        marks = [f"сделала {done} из {funnel.WORKOUTS}"]
+        if mood:
+            marks.append(texts.MOODS.get(mood, mood))
+        if clicked:
+            marks.append("💎 смотрела тарифы")
+        line = ("🔥 " if score >= 2 else "• ") + _who(u) + " — " + ", ".join(marks)
+        if w and w["review"]:
+            line += f"\n   «{html.escape(w['review'][:150])}»"
+        rows.append((score, line, u))
+    return sorted(rows, key=lambda r: -r[0])
+
+
+async def alert_warm(bot: Bot, users, now: datetime) -> None:
+    """Вечером — список сестёр, получивших сегодня предложение клуба, для личного сообщения."""
+    local = now.astimezone(funnel.zone(config.DEFAULT_TZ))
+    if not (config.ADMIN_EVENING_HOUR <= local.hour < config.QUIET_HOUR):
+        return
+    candidates = [u for u in users if u["paid_at"] is None]
+    info = await db.warmth([u["tg_id"] for u in candidates])
+    rows = warm_lines(candidates, info, now)
+    if not rows or not await db.claim_alert(f"warm:{local.date()}"):
+        return
+    hot = [(u["tg_id"], messages.name_of(u)) for score, _, u in rows if score >= 2][:10]
+    kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(
+        text=f"✍️ {html.unescape(name)}", callback_data=f"adm:reply:{tg}")] for tg, name in hot]) if hot else None
+    await messages.notify_admins(
+        bot, "🤍 <b>Кому написать лично</b> — сегодня им пришло предложение клуба.\n"
+             "🔥 — самые тёплые: занимались, отвечали или смотрели тарифы. "
+             "Ответить через бота — кнопки ниже, или нажмите на имя.\n\n"
+             + "\n".join(line for _, line, _ in rows[:40])
+             + "\n\n🎁 Подарок (личный план первым 10) они увидят на 9-й день — можно сказать о нём уже сейчас.",
+        kb)

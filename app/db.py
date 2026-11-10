@@ -432,6 +432,32 @@ async def mark_done(tg_id: int, day: int) -> tuple[bool, int]:
     return new is not None, total
 
 
+async def warmth(tg_ids: list[int]) -> dict[int, asyncpg.Record]:
+    """Для списка тёплых: сколько отметила, последний ответ «Как ощущения?», открывала ли тарифы."""
+    rows = await _p().fetch(
+        """SELECT t.tg_id,
+                  (SELECT count(*) FROM completions c WHERE c.tg_id = t.tg_id) AS done,
+                  (SELECT mood FROM feedback f WHERE f.tg_id = t.tg_id AND mood IS NOT NULL
+                    ORDER BY id DESC LIMIT 1) AS mood,
+                  (SELECT text FROM feedback f WHERE f.tg_id = t.tg_id AND text IS NOT NULL
+                    ORDER BY id DESC LIMIT 1) AS review,
+                  EXISTS (SELECT 1 FROM sends s WHERE s.tg_id = t.tg_id AND s.key = 'club_click') AS clicked
+             FROM unnest($1::bigint[]) AS t(tg_id)""", tg_ids)
+    return {r["tg_id"]: r for r in rows}
+
+
+async def club_clicks_unpaid(since: datetime, before: datetime) -> list[asyncpg.Record]:
+    """Открыли тарифы клуба (в окне времени) и так и не купили."""
+    return await _p().fetch(
+        """SELECT u.* FROM sends s JOIN users u USING (tg_id)
+            WHERE s.key = 'club_click' AND s.sent_at >= $1 AND s.sent_at < $2
+              AND u.paid_at IS NULL AND NOT u.blocked""", since, before)
+
+
+async def has_done(tg_id: int, n: int) -> bool:
+    return bool(await _p().fetchval("SELECT 1 FROM completions WHERE tg_id = $1 AND day = $2", tg_id, n))
+
+
 async def done_count(tg_id: int) -> int:
     return await _p().fetchval("SELECT count(*) FROM completions WHERE tg_id = $1", tg_id)
 
@@ -460,12 +486,12 @@ async def add_feedback_text(tg_id: int, day: int, text: str) -> int:
 async def get_feedback(fid: int) -> asyncpg.Record | None:
     return await _p().fetchrow(
         """SELECT f.*, u.first_name, u.username FROM feedback f
-           JOIN users u USING (tg_id) WHERE f.id = $1""", fid)
+           LEFT JOIN users u USING (tg_id) WHERE f.id = $1""", fid)
 
 
 async def next_pending_feedback() -> asyncpg.Record | None:
     return await _p().fetchrow(
-        """SELECT f.*, u.first_name, u.username FROM feedback f JOIN users u USING (tg_id)
+        """SELECT f.*, u.first_name, u.username FROM feedback f LEFT JOIN users u USING (tg_id)
            WHERE f.approved IS NULL AND f.text IS NOT NULL AND f.text <> ''
            ORDER BY f.id LIMIT 1""")
 
@@ -476,9 +502,17 @@ async def moderate_feedback(fid: int, approved: bool) -> None:
 
 async def approved_reviews(exclude_tg: int, limit: int = 3) -> list[asyncpg.Record]:
     return await _p().fetch(
-        """SELECT f.text, u.first_name FROM feedback f JOIN users u USING (tg_id)
-           WHERE f.approved AND f.tg_id <> $1 ORDER BY random() LIMIT $2""",
+        """SELECT f.text, COALESCE(f.author, u.first_name) AS first_name
+             FROM feedback f LEFT JOIN users u USING (tg_id)
+            WHERE f.approved AND f.text IS NOT NULL AND f.tg_id IS DISTINCT FROM $1
+            ORDER BY random() LIMIT $2""",
         exclude_tg, limit)
+
+
+async def add_manual_review(author: str | None, text: str) -> int:
+    """Отзыв из канала, добавленный тренером: сразу одобрен."""
+    return await _p().fetchval(
+        "INSERT INTO feedback (author, text, approved) VALUES ($1, $2, true) RETURNING id", author, text)
 
 
 # ─────────────────────────────── оплаты ───────────────────────────────
