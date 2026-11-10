@@ -716,7 +716,7 @@ def today_report(day: date, rows, label: str) -> str:
     names: dict[int, str] = {}
     for r in rows:
         what = (f"клуб №{r['num']}" if r["club"]
-                else f"бесплатная №{funnel.WORKOUT_DAYS.get(r['num'], r['num'])}")
+                else f"бесплатная №{r['num']}")
         people.setdefault(r["tg_id"], []).append(f"{what} ({r['created_at'].astimezone(z):%H:%M})")
         names[r["tg_id"]] = messages.name_of(r) + (f" @{html.escape(r['username'])}" if r["username"] else "")
     lines = [f"<b>{label}</b> — нажали «Сделала»: {len(people)} (отметок {len(rows)})\n"]
@@ -781,7 +781,7 @@ async def who(message: Message, command: CommandObject, bot: Bot) -> None:
                      f"{texts.AGES.get(h['age'], '—')}; {limits}"
                      + (f" («{html.escape(h['note'])}»)" if h["note"] else "")
                      + (f"; {h['height_cm']} см / {h['weight_kg']} кг" if h["height_cm"] else "")))
-    lines.append("«Сделала»: " + (", ".join(f"№{funnel.WORKOUT_DAYS.get(r['day'], r['day'])} ({_when(r['created_at'], tz)})"
+    lines.append("«Сделала»: " + (", ".join(f"№{r['day']} ({_when(r['created_at'], tz)})"
                                             for r in card["done"]) or "пока ни одной"))
     cm = card["club"]
     cd = card["club_done"]

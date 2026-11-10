@@ -290,7 +290,7 @@ async def send_action(bot: Bot, u, a: funnel.Action) -> str:
         return await say(bot, tg_id, texts.CHECKIN.format(name=name, week=a.day // 7),
                          keyboards.checkin(a.day))
     if a.kind == "nudge":
-        return await say(bot, tg_id, texts.NUDGE.format(name=name))
+        return await say(bot, tg_id, texts.NUDGE.format(name=name), keyboards.done(funnel.NUDGE_DAYS[a.day]))
     if a.kind == "warm_stats":
         done = await db.done_count(tg_id)
         days = funnel.workouts_received(a.day)
