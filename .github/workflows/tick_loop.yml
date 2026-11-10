@@ -1,0 +1,46 @@
+# Будильник-«дежурство» бота тренировок (с 10.11.2026).
+#
+# С 09.11.2026 Render перестал будить спящий бесплатный сервис по запросам
+# cron-job.org (ответ 503, x-render-routing: hibernate-wake-error), а запросы
+# с серверов GitHub будят нормально. Расписание GitHub ненадёжное (часто
+# пропускает запуски), поэтому один запуск дежурит несколько часов: дёргает
+# /tick каждые 30 минут. Новый запуск сменяет старый (concurrency).
+# Запускают: расписание ниже (запасной путь) и сторож Claude раз в 4 часа.
+# Репозиторий открытый — минуты GitHub Actions для него бесплатные.
+
+name: "Бот тренировок: дежурный будильник"
+
+on:
+  schedule:
+    - cron: "11 */3 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: sisters-bot-tick-loop
+  cancel-in-progress: true
+
+jobs:
+  loop:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - name: Будить бота каждые 30 минут (~4,5 часа)
+        env:
+          TICK_URL: ${{ secrets.TICK_URL }}
+        run: |
+          if [ -z "$TICK_URL" ]; then echo "Секрет TICK_URL не задан — пропускаю."; exit 0; fi
+          URL="$(printf '%s' "$TICK_URL" | tr -d '[:space:]')"
+          BOT_URL="https://sister-bot-e5q4.onrender.com"
+          case "$URL" in
+            http://*|https://*)
+              KEY="$(printf '%s' "$URL" | sed -n 's/.*[?&]key=\([^&]*\).*/\1/p')"
+              [ -n "$KEY" ] && URL="$BOT_URL/tick?key=$KEY" ;;
+            *) URL="$BOT_URL/tick?key=$URL" ;;
+          esac
+          echo "::add-mask::$URL"
+          for i in $(seq 1 9); do
+            code=$(curl --silent --output /tmp/tick.out --write-out '%{http_code}' \
+                 --retry 4 --retry-delay 20 --retry-all-errors --max-time 600 "$URL") || true
+            echo "$(date -u +%H:%M) тик $i: HTTP $code $(head -c 200 /tmp/tick.out 2>/dev/null)"
+            [ "$i" -lt 9 ] && sleep 1800
+          done
