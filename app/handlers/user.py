@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import html
 import logging
+import re
 from datetime import datetime, timezone
 
 from aiogram import Bot, F, Router
@@ -349,6 +350,27 @@ async def i_paid_plan(cb: CallbackQuery, bot: Bot) -> None:
     fu = cb.from_user
     u = await db.get_user(fu.id) or await db.upsert_user(fu.id, fu.username, fu.first_name, None)
     await cb.message.answer(await payments.manual_claim(bot, u, code))
+
+
+# ─────────────────────────────── незнакомая команда ───────────────────────────────
+
+def _admin_commands() -> set[str]:
+    from . import admin
+    return set(re.findall(r"^/(\w+)", admin.HELP, flags=re.M)) | {"admin", "who", "upload", "videos", "live"}
+
+
+@router.message(F.chat.type == "private", F.text.startswith("/"))
+async def unknown_command(message: Message) -> None:
+    """Раньше незнакомые команды бот молча пропускал — казалось, что он сломан."""
+    cmd = message.text[1:].split(maxsplit=1)[0].split("@")[0].lower() if len(message.text) > 1 else ""
+    if cmd in _admin_commands():
+        await message.answer(
+            f"Команда /{html.escape(cmd)} — только для админа бота, а этот аккаунт не админ. "
+            f"Его id: <code>{message.from_user.id}</code>.\n\nПишите её с аккаунта тренера или "
+            "добавьте этот id в Render → sister-bot → Environment → <code>ADMIN_IDS</code> "
+            "(через запятую), Save — через пару минут заработает.")
+        return
+    await message.answer(texts.UNKNOWN_COMMAND)
 
 
 # ─────────────────────────────── свободный текст ───────────────────────────────
