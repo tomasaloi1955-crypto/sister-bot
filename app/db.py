@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime
 from pathlib import Path
 
 import asyncpg
@@ -573,16 +574,29 @@ async def person_card(tg_id: int) -> dict | None:
     return {
         "user": u,
         "health": await get_health(tg_id),
-        "done": [r["day"] for r in await p.fetch(
-            "SELECT day FROM completions WHERE tg_id = $1 ORDER BY day", tg_id)],
+        "done": await p.fetch(
+            "SELECT day, created_at FROM completions WHERE tg_id = $1 ORDER BY day", tg_id),
         "sends": await p.fetch(
             "SELECT key, sent_at FROM sends WHERE tg_id = $1 ORDER BY sent_at DESC LIMIT 8", tg_id),
         "club": await club_member(tg_id),
-        "club_done": await p.fetchval("SELECT count(*) FROM club_done WHERE tg_id = $1", tg_id),
+        "club_done": await p.fetch(
+            "SELECT n, created_at FROM club_done WHERE tg_id = $1 ORDER BY created_at DESC", tg_id),
         "payments": await p.fetch(
             "SELECT provider, status, raw->>'plan' AS plan, created_at FROM payments "
             "WHERE tg_id = $1 ORDER BY id DESC LIMIT 3", tg_id),
     }
+
+
+async def done_between(start: datetime, end: datetime) -> list[asyncpg.Record]:
+    """Все нажатия «Сделала» за отрезок времени (для /today): и неделя, и клуб."""
+    return await _p().fetch(
+        """SELECT d.tg_id, d.club, d.num, d.created_at, u.first_name, u.username
+             FROM (SELECT tg_id, false AS club, day AS num, created_at FROM completions
+                   UNION ALL
+                   SELECT tg_id, true AS club, n AS num, created_at FROM club_done) d
+             JOIN users u ON u.tg_id = d.tg_id
+            WHERE d.created_at >= $1 AND d.created_at < $2
+            ORDER BY d.created_at""", start, end)
 
 
 SEGMENTS = {
