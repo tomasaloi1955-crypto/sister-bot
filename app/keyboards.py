@@ -124,6 +124,11 @@ def settings(unsubscribed: bool) -> InlineKeyboardMarkup:
 
 # ─────────────────────────────── админка ───────────────────────────────
 
+def reply_to(tg_id: int) -> InlineKeyboardMarkup:
+    # без url-кнопки tg://user — у кого закрыт профиль, Telegram отклонил бы всё сообщение
+    return _kb([[B(text="✍️ Ответить через бота", callback_data=f"adm:reply:{tg_id}")]])
+
+
 def moderate(fid: int) -> InlineKeyboardMarkup:
     return _kb([[B(text="✅ Одобрить", callback_data=f"adm:fb:1:{fid}"),
                  B(text="❌ Отклонить", callback_data=f"adm:fb:0:{fid}")]])
