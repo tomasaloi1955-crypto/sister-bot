@@ -7,7 +7,7 @@ import html
 import io
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import date, datetime, time, timedelta, timezone
 
 from aiogram import Bot, F, Router
 from aiogram.filters import Command, CommandObject, StateFilter
@@ -42,6 +42,7 @@ HELP = (
     "/reweek — предложить неделю бесплатных тренировок тем, кто нажал /start, но не прошёл анкету\n"
     "/reviews — модерация отзывов\n"
     "/list — последние 30 сестёр: id, день, сколько сделала, купила ли\n"
+    "/today — кто сегодня нажал «Сделала» и какую тренировку; /today вчера или /today 08.11 — за другой день\n"
     "/who 123456789 или /who @ник — где сейчас сестра: анкета, тренировки, оплата\n"
     "/testme — сбросить СВОЮ бесплатную неделю, чтобы пройти анкету заново (проверка)\n"
     "/purge 123456789 — убрать у сестры из чата все видео тренировок сейчас\n"
@@ -683,6 +684,62 @@ async def people_list(message: Message) -> None:
     await message.answer("\n".join(lines))
 
 
+# ─────────────────────────────── /today ───────────────────────────────
+
+def parse_day(arg: str | None, today: date) -> date | None:
+    """«» / «сегодня» → сегодня, «вчера», «позавчера», «08.11» или «08.11.2026». None — не понял."""
+    a = (arg or "").strip().lower()
+    if a in ("", "сегодня"):
+        return today
+    if a == "вчера":
+        return today - timedelta(days=1)
+    if a == "позавчера":
+        return today - timedelta(days=2)
+    parts = a.replace("/", ".").replace("-", ".").split(".")
+    try:
+        if len(parts) == 2:
+            d = date(today.year, int(parts[1]), int(parts[0]))
+            return d if d <= today else d.replace(year=today.year - 1)   # «31.12» в январе — прошлый год
+        if len(parts) == 3:
+            y = int(parts[2])
+            return date(y + 2000 if y < 100 else y, int(parts[1]), int(parts[0]))
+    except ValueError:
+        return None
+    return None
+
+
+def today_report(day: date, rows, label: str) -> str:
+    if not rows:
+        return f"<b>{label}</b>: никто не нажимал «Сделала» 🤍"
+    z = funnel.zone(config.DEFAULT_TZ)
+    people: dict[int, list[str]] = {}
+    names: dict[int, str] = {}
+    for r in rows:
+        what = (f"клуб №{r['num']}" if r["club"]
+                else f"бесплатная №{funnel.WORKOUT_DAYS.get(r['num'], r['num'])}")
+        people.setdefault(r["tg_id"], []).append(f"{what} ({r['created_at'].astimezone(z):%H:%M})")
+        names[r["tg_id"]] = messages.name_of(r) + (f" @{html.escape(r['username'])}" if r["username"] else "")
+    lines = [f"<b>{label}</b> — нажали «Сделала»: {len(people)} (отметок {len(rows)})\n"]
+    for tg_id, items in people.items():
+        lines.append(f"• {names[tg_id]} — {', '.join(items)} · <code>{tg_id}</code>")
+    lines.append(f"\nВремя — {config.DEFAULT_TZ}. Подробно о сестре: /who id")
+    return "\n".join(lines)
+
+
+@router.message(Command("today"))
+async def today_cmd(message: Message, command: CommandObject) -> None:
+    z = funnel.zone(config.DEFAULT_TZ)
+    today = datetime.now(z).date()
+    day = parse_day(command.args, today)
+    if day is None:
+        await message.answer("Формат: <code>/today</code>, <code>/today вчера</code> или <code>/today 08.11</code>")
+        return
+    start = datetime.combine(day, time(0), tzinfo=z)
+    rows = await db.done_between(start, start + timedelta(days=1))
+    label = "Сегодня" if day == today else "Вчера" if day == today - timedelta(days=1) else f"{day:%d.%m.%Y}"
+    await message.answer(today_report(day, rows, f"{label}, {day:%d.%m}" if label in ("Сегодня", "Вчера") else label))
+
+
 @router.message(Command("testme"))
 async def testme(message: Message, state: FSMContext) -> None:
     """Проверка воронки на себе: сбрасываем только свою анкету и неделю."""
@@ -724,12 +781,18 @@ async def who(message: Message, command: CommandObject, bot: Bot) -> None:
                      f"{texts.AGES.get(h['age'], '—')}; {limits}"
                      + (f" («{html.escape(h['note'])}»)" if h["note"] else "")
                      + (f"; {h['height_cm']} см / {h['weight_kg']} кг" if h["height_cm"] else "")))
-    lines.append("«Сделала»: " + (", ".join(f"№{d}" for d in card["done"]) or "пока ни одной"))
+    lines.append("«Сделала»: " + (", ".join(f"№{funnel.WORKOUT_DAYS.get(r['day'], r['day'])} ({_when(r['created_at'], tz)})"
+                                            for r in card["done"]) or "пока ни одной"))
     cm = card["club"]
+    cd = card["club_done"]
     if cm:
         lines.append(f"Клуб: {texts.PLAN_NAMES.get(cm['plan'], cm['plan'])}, "
-                     + (f"с {_when(cm['started_at'], tz)}, следующая №{cm['next_n']}, сделала {card['club_done']}"
+                     + (f"с {_when(cm['started_at'], tz)}, следующая №{cm['next_n']}, сделала {len(cd)}"
                         if cm["active"] else f"вышла {_when(cm['left_at'], tz)}"))
+    if cd:
+        lines.append("«Сделала» в клубе (новые сверху): "
+                     + ", ".join(f"№{r['n']} ({_when(r['created_at'], tz)})" for r in cd[:10])
+                     + (f" и ещё {len(cd) - 10}" if len(cd) > 10 else ""))
     if u["paid_at"]:
         lines.append(f"💰 Купила клуб: {_when(u['paid_at'], tz)}")
     for p in card["payments"]:
