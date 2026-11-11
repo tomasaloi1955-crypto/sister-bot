@@ -31,19 +31,24 @@ async def send_club_link(bot: Bot, tg_id: int, plan: str | None, again: bool = F
     Канал тарифа не задан (CLUB_CHAT_ID пуст) — значит, в канал впускает сам
     Tribute (платный канал): ссылку она получает от бота Tribute."""
     chat = config.PLANS.get(plan or "", config.PLANS[config.DEFAULT_PLAN])["chat"]
-    if not chat:
+    # группы, которые тренер привязала к тарифу через /channels, — если в настройках канала нет
+    chats = [int(chat)] if chat else [ch["chat_id"] for ch in await db.club_channels()
+                                       if ch["plan"] == (plan if plan in config.PLANS else config.DEFAULT_PLAN)]
+    if not chats:
         text = (texts.CLUB_VIA_TRIBUTE if again
                 else texts.ACCESS_VIA_TRIBUTE if via_tribute else texts.ACCESS_GRANTED_NO_LINK)
         await messages.say(bot, tg_id, text.format(plan=plan_name(plan)))
         return None
-    link = None
-    try:
-        invite = await bot.create_chat_invite_link(
-            chat_id=int(chat), name=f"club {plan} {tg_id}"[:32], member_limit=1,
-            expire_date=datetime.now(timezone.utc) + timedelta(days=7))
-        link = invite.invite_link
-    except Exception:
-        log.exception("Не удалось создать ссылку в клуб (бот админ в клубе? CLUB_CHAT_ID верный?)")
+    links = []
+    for chat_id in chats:
+        try:
+            invite = await bot.create_chat_invite_link(
+                chat_id=chat_id, name=f"club {plan} {tg_id}"[:32], member_limit=1,
+                expire_date=datetime.now(timezone.utc) + timedelta(days=7))
+            links.append(invite.invite_link)
+        except Exception:
+            log.exception("Не удалось создать ссылку в клуб %s (бот админ в группе?)", chat_id)
+    link = "\n".join(links) or None
     if link:
         text = texts.CLUB_LINK_AGAIN if again else texts.ACCESS_GRANTED
         await messages.say(bot, tg_id, text.format(link=link, plan=plan_name(plan)))
