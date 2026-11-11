@@ -50,6 +50,7 @@ HELP = (
     "/clubinvite — закрепить в группах клуба кнопку «Получать тренировки» (для тех, кто бота не открывал)\n"
     "/syncclub — кто в клубе + найти в группах клуба сестёр, которых бот не записал (добавили руками)\n"
     "/grant 123456789 3 — выдать клуб вручную (id участницы; 3 или 6 — тариф)\n"
+    "/clublink 123456789 — ещё раз прислать сестре ссылку в группу клуба\n"
     "/export — выгрузка участниц в CSV\n"
     "/products — товары Tribute и куда идут их оплаты\n"
     "/route 12345 school — направить товар (school, 3, 6, ignore или https://…)\n"
@@ -892,6 +893,23 @@ async def grant(message: Message, command: CommandObject, bot: Bot) -> None:
     tg_id = int(args[0])
     await db.add_payment(tg_id, "manual", None, None, None, "paid", {"by": message.from_user.id, "plan": plan})
     await payments.grant_access(bot, tg_id, plan)
+
+
+@router.message(Command("clublink"))
+async def clublink(message: Message, command: CommandObject, bot: Bot) -> None:
+    arg = (command.args or "").strip()
+    if not arg.isdigit():
+        await message.answer("Формат: <code>/clublink 123456789</code> — ещё раз прислать сестре ссылку в группу клуба")
+        return
+    cm = await db.club_member(int(arg))
+    plan = (cm["plan"] if cm and cm["active"] else None) or await db.paid_plan(int(arg))
+    if plan is None:
+        await message.answer("Эта сестра не в клубе. Сначала: <code>/grant id 3</code>")
+        return
+    link = await payments.send_club_link(bot, int(arg), plan, again=True)
+    await message.answer("✅ Ссылка отправлена" if link else
+                         "⚠️ Ссылку создать не вышло: проверьте /channels — группа привязана к тарифу, "
+                         "и бот в ней администратор с правом приглашать.")
 
 
 @router.message(Command("syncclub"))
