@@ -153,7 +153,8 @@ async def done(cb: CallbackQuery) -> None:
     new, total = await db.mark_done(u["tg_id"], day)
     await cb.answer()
     try:
-        await cb.message.edit_reply_markup(reply_markup=keyboards.done_marked())
+        await cb.message.edit_reply_markup(reply_markup=keyboards.done_marked(
+            with_club=day == funnel.WORKOUTS and u["paid_at"] is None))
     except Exception:
         pass
     await cb.message.answer((texts.DONE_REPLY if new else texts.DONE_REPLY_AGAIN).format(count=total))
