@@ -33,3 +33,12 @@ def test_gift_note_days_9_10():
     assert "🎁" in payments.gift_note(_u(1, 9), NOW)
     assert "🎁" in payments.gift_note(_u(1, 10), NOW)
     assert payments.gift_note(_u(1, 8), NOW) == "" and payments.gift_note(_u(1, 11), NOW) == ""
+
+
+def test_club_button_under_last_workout():
+    from app import keyboards
+    labels = lambda kb: [b.text for row in kb.inline_keyboard for b in row]
+    assert "💎 Хочу в клуб" in labels(keyboards.done(3))
+    assert "💎 Хочу в клуб" not in labels(keyboards.done(1))
+    assert "💎 Хочу в клуб" in labels(keyboards.done_marked(with_club=True))
+    assert labels(keyboards.done_marked()) == ["✅ Засчитано"]

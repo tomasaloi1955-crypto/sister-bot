@@ -2,7 +2,7 @@
 from aiogram.types import InlineKeyboardButton as B
 from aiogram.types import InlineKeyboardMarkup
 
-from . import config, texts
+from . import config, funnel, texts
 
 
 def _kb(rows) -> InlineKeyboardMarkup:
@@ -20,7 +20,10 @@ def first_slot() -> InlineKeyboardMarkup:
 
 
 def done(day: int) -> InlineKeyboardMarkup:
-    return _kb([[B(text=texts.DONE_BUTTON, callback_data=f"done:{day}")]])
+    rows = [[B(text=texts.DONE_BUTTON, callback_data=f"done:{day}")]]
+    if day == funnel.WORKOUTS:            # под последней тренировкой недели — сразу и клуб
+        rows.append([B(text=texts.CLUB_BUTTON, callback_data="club")])
+    return _kb(rows)
 
 
 def rewatch(n: int, club: bool = False) -> InlineKeyboardMarkup:
@@ -31,8 +34,11 @@ def club_done(n: int) -> InlineKeyboardMarkup:
     return _kb([[B(text=texts.DONE_BUTTON, callback_data=f"cd:{n}")]])
 
 
-def done_marked() -> InlineKeyboardMarkup:
-    return _kb([[B(text=texts.DONE_ALREADY_BUTTON, callback_data="noop")]])
+def done_marked(with_club: bool = False) -> InlineKeyboardMarkup:
+    rows = [[B(text=texts.DONE_ALREADY_BUTTON, callback_data="noop")]]
+    if with_club:
+        rows.append([B(text=texts.CLUB_BUTTON, callback_data="club")])
+    return _kb(rows)
 
 
 def checkin(day: int) -> InlineKeyboardMarkup:
