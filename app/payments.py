@@ -105,6 +105,8 @@ async def grant_access(bot: Bot, tg_id: int, plan: str | None, via_tribute: bool
 async def mark_club_member(bot: Bot, tg_id: int, plan: str, chat_id: int, notify: bool = True) -> str | None:
     """Сестра в канале клуба (её впустил Tribute) — значит, купила. Отмечаем
     один раз, без ссылок: доступ у неё уже есть."""
+    if await db.is_ungranted(tg_id):               # тренер убрала её из отчётов (/ungrant)
+        return None
     pid = await db.add_payment(tg_id, "channel", f"channel:{chat_id}:{tg_id}", None, None, "paid",
                                {"plan": plan, "chat_id": chat_id})
     first = await db.mark_paid(tg_id)
@@ -145,6 +147,8 @@ async def sync_club(bot: Bot) -> tuple[list[tuple[int, str]], dict[str, str]]:
     channels = [dict(ch) for ch in await db.club_channels() if ch["plan"] in config.PLANS]
     found, broken = [], {}
     for tg_id in await db.users_outside_club():
+        if await db.is_ungranted(tg_id):           # тренер убрала её из отчётов (/ungrant)
+            continue
         for ch in channels:
             ch["chat_id"], status = await membership(bot, ch["chat_id"], tg_id)
             await asyncio.sleep(0.05)              # не больше ~20 запросов в секунду
@@ -159,6 +163,8 @@ async def sync_club(bot: Bot) -> tuple[list[tuple[int, str]], dict[str, str]]:
 
 async def club_plan_by_membership(bot: Bot, tg_id: int) -> str | None:
     """Запасная проверка перед продажей: есть ли она в канале клуба."""
+    if await db.is_ungranted(tg_id):
+        return "ungranted"                         # убрана /ungrant: не продаём и не записываем
     for ch in await db.club_channels():
         if ch["plan"] not in config.PLANS:
             continue

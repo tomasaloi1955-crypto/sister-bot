@@ -343,6 +343,25 @@ async def club_deactivate(tg_id: int) -> bool:
     return row is not None
 
 
+async def ungrant(tg_id: int) -> bool:
+    """Убрать сестру из клуба и из покупок в отчётах (из группы не удаляем, ей не пишем).
+    Помечаем, чтобы бот не записал её обратно, увидев в группе. False — её нет в боте."""
+    async with _p().acquire() as con, con.transaction():
+        if not await con.fetchval("SELECT 1 FROM users WHERE tg_id = $1", tg_id):
+            return False
+        await con.execute("UPDATE club_members SET active = false, left_at = now() WHERE tg_id = $1 AND active", tg_id)
+        await con.execute("UPDATE users SET paid_at = NULL WHERE tg_id = $1", tg_id)
+        await con.execute("UPDATE payments SET status = 'cancelled' WHERE tg_id = $1 AND status = 'paid'", tg_id)
+        await con.execute(
+            """INSERT INTO settings (key, value) VALUES ($1, '1')
+               ON CONFLICT (key) DO UPDATE SET value = '1'""", f"ungranted:{tg_id}")
+    return True
+
+
+async def is_ungranted(tg_id: int) -> bool:
+    return await get_setting(f"ungranted:{tg_id}") == "1"
+
+
 async def users_outside_club() -> list[int]:
     """Все, кто не в клубе (для /syncclub: вдруг их добавили в группу клуба руками)."""
     rows = await _p().fetch(

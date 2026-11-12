@@ -24,3 +24,16 @@ def test_link_from_channels(monkeypatch):
     monkeypatch.setattr(payments.messages, "say", say)
     link = asyncio.run(payments.send_club_link(Bot(), 7, "3x"))
     assert made == [-100] and link == "https://t.me/+x-100" and "https://t.me/+x-100" in sent[0]
+
+
+def test_ungranted_not_marked_back(monkeypatch):
+    async def yes(tg_id):
+        return True
+
+    async def boom(*a, **k):
+        raise AssertionError("не должна записываться в клуб")
+
+    monkeypatch.setattr(payments.db, "is_ungranted", yes)
+    monkeypatch.setattr(payments.db, "add_payment", boom)
+    assert asyncio.run(payments.mark_club_member(None, 5, "3x", -100)) is None
+    assert asyncio.run(payments.club_plan_by_membership(None, 5)) == "ungranted"   # продажи ей не шлём
