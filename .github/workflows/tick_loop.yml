@@ -42,5 +42,5 @@ jobs:
             code=$(curl --silent --output /tmp/tick.out --write-out '%{http_code}' \
                  --retry 4 --retry-delay 20 --retry-all-errors --max-time 600 "$URL") || true
             echo "$(date -u +%H:%M) тик $i: HTTP $code $(head -c 200 /tmp/tick.out 2>/dev/null)"
-            [ "$i" -lt 9 ] && sleep 1800
+            if [ "$i" -lt 9 ]; then sleep 1800; fi
           done
