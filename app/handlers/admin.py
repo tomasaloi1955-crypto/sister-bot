@@ -51,6 +51,7 @@ HELP = (
     "/syncclub — кто в клубе + найти в группах клуба сестёр, которых бот не записал (добавили руками)\n"
     "/grant 123456789 3 — выдать клуб вручную (id участницы; 3 или 6 — тариф)\n"
     "/clublink 123456789 — ещё раз прислать сестре ссылку в группу клуба\n"
+    "/ungrant 123456789 — убрать из клуба и покупок в отчётах (из группы не удаляет)\n"
     "/export — выгрузка участниц в CSV\n"
     "/products — товары Tribute и куда идут их оплаты\n"
     "/route 12345 school — направить товар (school, 3, 6, ignore или https://…)\n"
@@ -891,8 +892,28 @@ async def grant(message: Message, command: CommandObject, bot: Bot) -> None:
                              "(Telegram id участницы из /export; 3 или 5 раз в неделю)")
         return
     tg_id = int(args[0])
+    await db.del_setting(f"ungranted:{tg_id}")     # если раньше убирали через /ungrant
     await db.add_payment(tg_id, "manual", None, None, None, "paid", {"by": message.from_user.id, "plan": plan})
     await payments.grant_access(bot, tg_id, plan)
+
+
+@router.message(Command("ungrant"))
+async def ungrant(message: Message, command: CommandObject) -> None:
+    arg = (command.args or "").strip()
+    if not arg.isdigit():
+        await message.answer("Формат: <code>/ungrant 123456789</code> — убрать сестру из клуба и покупок "
+                             "в отчётах бота. Из группы она не удаляется, ей бот ничего не пишет.")
+        return
+    tg_id = int(arg)
+    u = await db.get_user(tg_id)
+    if not await db.ungrant(tg_id):
+        await message.answer(f"Сестры с id {tg_id} в боте нет.")
+        return
+    await message.answer(
+        f"✅ {messages.name_of(u)} (id {tg_id}) убрана из клуба и из покупок в /stats.\n"
+        "Из группы клуба её не удаляла, ей ничего не писала. Тренировки клуба на этот аккаунт "
+        "больше не придут, продающие сообщения — тоже.\n"
+        f"Вернуть: <code>/grant {tg_id} 3</code>")
 
 
 @router.message(Command("clublink"))
