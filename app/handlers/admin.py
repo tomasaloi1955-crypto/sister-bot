@@ -43,6 +43,7 @@ HELP = (
     "/reviews — модерация отзывов\n"
     "/addreview Амина: текст — добавить отзыв из канала (бот покажет его новым сёстрам)\n"
     "/list — последние 30 сестёр: id, день, сколько сделала, купила ли\n"
+    "/day — что бот сделал за день: кому что отправил, кто ответил, купил, заблокировал; /day вчера\n"
     "/today — кто сегодня нажал «Сделала» и какую тренировку; /today вчера или /today 08.11 — за другой день\n"
     "/who 123456789 или /who @ник — где сейчас сестра: анкета, тренировки, оплата\n"
     "/testme — сбросить СВОЮ бесплатную неделю, чтобы пройти анкету заново (проверка)\n"
@@ -776,6 +777,115 @@ def today_report(day: date, rows, label: str) -> str:
         lines.append(f"• {names[tg_id]} — {', '.join(items)} · <code>{tg_id}</code>")
     lines.append(f"\nВремя — {config.DEFAULT_TZ}. Подробно о сестре: /who id")
     return "\n".join(lines)
+
+
+# ─────────────────────────────── /day ───────────────────────────────
+
+DAY_KINDS = {             # тип сообщения → как назвать в отчёте (порядок — порядок в отчёте)
+    "sale:7": "💎 Предложение клуба (день 7)",
+    "sale:8": "💬 Ответы на вопросы о клубе (день 8)",
+    "sale:9": "🎁 Последний день + подарок (день 9)",
+    "warm_stats": "🌟 Итоги недели (день 6)",
+    "checkin": "🙂 «Как ощущения?» (день 6)",
+    "warm_reviews": "💬 Отзывы (день 4)",
+    "ask": "❓ «Получилось сделать первую?» (день 2)",
+    "nudge": "🤍 «Как тебе вторая?» (день 4)",
+    "workout": "🏃‍♀️ Тренировки бесплатной недели",
+    "club": "🌿 Тренировки клуба в записи",
+    "liverec": "🎬 Запись вместо эфира",
+    "live": "📡 Напоминания об эфире",
+    "post": "✉️ Письма после недели",
+    "reweek": "🔁 Приглашение пройти неделю",
+}
+SKIP_KEYS = {"club_click"}                 # это не сообщение, а отметка «открыла тарифы»
+NAMES_SHOWN = 12
+
+
+def _short(r) -> str:
+    return messages.name_of(r) + (f" @{html.escape(r['username'])}" if r["username"] else "")
+
+
+def _names(rows) -> str:
+    seen, out = set(), []
+    for r in rows:
+        if r["tg_id"] not in seen:
+            seen.add(r["tg_id"])
+            out.append(_short(r))
+    more = len(out) - NAMES_SHOWN
+    return ", ".join(out[:NAMES_SHOWN]) + (f" и ещё {more}" if more > 0 else "")
+
+
+def _kind(key: str) -> str:
+    kind, _, rest = key.partition(":")
+    if kind == "sale":
+        return f"sale:{rest.split(':')[0]}"
+    return kind
+
+
+def day_report_text(rep: dict, label: str) -> str:
+    z = funnel.zone(config.DEFAULT_TZ)
+    groups: dict[str, list] = {}
+    clicks = []
+    for r in rep["sends"]:
+        if r["key"] in SKIP_KEYS:
+            clicks.append(r)
+            continue
+        groups.setdefault(_kind(r["key"]), []).append(r)
+    lines = [f"📅 <b>{label}</b> — что делал бот (время — {config.DEFAULT_TZ})", "", "<b>📤 Бот отправил:</b>"]
+    order = list(DAY_KINDS) + sorted(k for k in groups if k not in DAY_KINDS)
+    sent = [k for k in order if k in groups]
+    for k in sent:
+        rows = groups[k]
+        lines.append(f"• {DAY_KINDS.get(k, k)} — <b>{len(rows)}</b>: {_names(rows)}")
+    if not sent:
+        lines.append("• ничего")
+
+    lines += ["", "<b>📥 Что сделали сёстры:</b>"]
+    if rep["paid"]:
+        lines.append(f"• 💰 Купили клуб — <b>{len(rep['paid'])}</b>: " + ", ".join(
+            f"{_short(r)} ({texts.PLAN_NAMES.get(r['plan'], r['plan'] or '—')}, {r['provider']})" for r in rep["paid"]))
+    if clicks:
+        lines.append(f"• 💎 Открыли тарифы — <b>{len(clicks)}</b>: {_names(clicks)}")
+    if rep["done"]:
+        by: dict[int, list[str]] = {}
+        for r in rep["done"]:
+            by.setdefault(r["tg_id"], []).append(f"клуб №{r['num']}" if r["club"] else f"№{r['num']}")
+        rows = {r["tg_id"]: r for r in rep["done"]}
+        lines.append(f"• ✅ Нажали «Сделала» — <b>{len(by)}</b>: "
+                     + ", ".join(f"{_short(rows[t])} ({', '.join(v)})" for t, v in by.items()))
+    moods = [r for r in rep["feedback"] if r["mood"]]
+    if moods:
+        lines.append(f"• 🙂 Ответили «Как ощущения?» — <b>{len(moods)}</b>: "
+                     + ", ".join(f"{_short(r)} — {texts.MOODS.get(r['mood'], r['mood'])}" for r in moods))
+    for r in [r for r in rep["feedback"] if r["text"]]:
+        lines.append(f"• 📝 Отзыв от {_short(r)}: «{html.escape(r['text'][:200])}»")
+    for r in rep["inbox"]:
+        lines.append(f"• 💬 {_short(r)} написала ({r['created_at'].astimezone(z):%H:%M}): "
+                     f"«{html.escape((r['text'] or '')[:200])}»")
+    if rep["new"]:
+        surveyed = sum(1 for r in rep["new"] if r["started_at"])
+        lines.append(f"• 🆕 Пришли в бота — <b>{len(rep['new'])}</b>, из них прошли анкету {surveyed}")
+    if rep["blocked"]:
+        lines.append(f"• ⛔ Заблокировали бота — <b>{len(rep['blocked'])}</b>: {_names(rep['blocked'])}")
+    if lines[-1] == "<b>📥 Что сделали сёстры:</b>":
+        lines.append("• пока ничего")
+    lines.append("\nПодробно о сестре: /who id · кто что отметил: /today")
+    return "\n".join(lines)
+
+
+@router.message(Command("day"))
+async def day_cmd(message: Message, command: CommandObject) -> None:
+    z = funnel.zone(config.DEFAULT_TZ)
+    today = datetime.now(z).date()
+    day = parse_day(command.args, today)
+    if day is None:
+        await message.answer("Формат: <code>/day</code>, <code>/day вчера</code> или <code>/day 08.11</code>")
+        return
+    start = datetime.combine(day, time(0), tzinfo=z)
+    rep = await db.day_report(start, start + timedelta(days=1))
+    label = (f"Сегодня, {day:%d.%m}" if day == today else
+             f"Вчера, {day:%d.%m}" if day == today - timedelta(days=1) else f"{day:%d.%m.%Y}")
+    await send_long(message, day_report_text(rep, label))
 
 
 @router.message(Command("today"))

@@ -30,3 +30,20 @@ def test_report():
     assert "Надя @nadya — клуб №12" in text and "бесплатная №1 (" in text
     assert "Аня — бесплатная №3" in text
     assert "никто" in today_report(T, [], "Сегодня")
+
+
+def test_day_report_text():
+    from app.handlers.admin import day_report_text
+    at = datetime(2026, 11, 13, 8, 0, tzinfo=timezone.utc)
+    u = lambda tg, name: {"tg_id": tg, "first_name": name, "username": None}
+    rep = {"sends": [{**u(1, "Надя"), "key": "sale:7", "sent_at": at},
+                     {**u(2, "Аня"), "key": "sale:7", "sent_at": at},
+                     {**u(2, "Аня"), "key": "club_click", "sent_at": at},
+                     {**u(3, "Лейла"), "key": "workout:3:evening", "sent_at": at}],
+           "done": [], "feedback": [], "paid": [], "new": [], "blocked": [u(4, "Мира")],
+           "inbox": [{**u(1, "Надя"), "text": "сколько стоит?", "created_at": at}]}
+    text = day_report_text(rep, "Сегодня")
+    assert "Предложение клуба (день 7) — <b>2</b>: Надя, Аня" in text
+    assert "Открыли тарифы — <b>1</b>: Аня" in text and "club_click" not in text
+    assert "Тренировки бесплатной недели — <b>1</b>" in text
+    assert "«сколько стоит?»" in text and "Заблокировали бота — <b>1</b>: Мира" in text

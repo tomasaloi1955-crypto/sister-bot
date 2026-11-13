@@ -406,6 +406,7 @@ async def forward_to_coach(message: Message, bot: Bot, u) -> None:
     who = (f'<a href="tg://user?id={u["tg_id"]}">{messages.name_of(u)}</a>'
            + (f" @{html.escape(u['username'])}" if u["username"] else ""))
     d = funnel.funnel_day(u["started_at"], _now(), u["tz"])
+    await db.add_inbox(u["tg_id"], message.text[:3000])
     await messages.notify_admins(
         bot, f"💬 Сообщение от {who} (id {u['tg_id']}, день {d}"
              + (", 💰 купила" if u["paid_at"] else "") + f"):\n\n«{html.escape(message.text[:3000])}»",

@@ -187,3 +187,16 @@ CREATE INDEX IF NOT EXISTS payments_tg_idx ON payments (tg_id);
 -- Отзывы, которые тренер добавила сама из канала (/addreview): без сестры в боте, с подписью
 ALTER TABLE feedback ALTER COLUMN tg_id DROP NOT NULL;
 ALTER TABLE feedback ADD COLUMN IF NOT EXISTS author TEXT;
+
+-- Что сёстры писали боту своими словами (для /day — «кто что ответил»)
+CREATE TABLE IF NOT EXISTS inbox (
+    id         BIGSERIAL PRIMARY KEY,
+    tg_id      BIGINT NOT NULL,
+    text       TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS inbox_created_idx ON inbox (created_at);
+
+-- Когда заблокировала бота (для /day)
+ALTER TABLE users ADD COLUMN IF NOT EXISTS blocked_at TIMESTAMPTZ;
+CREATE INDEX IF NOT EXISTS sends_sent_idx ON sends (sent_at);
