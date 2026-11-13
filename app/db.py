@@ -50,7 +50,7 @@ async def upsert_user(tg_id: int, username: str | None, first_name: str | None,
              SET username = EXCLUDED.username,
                  first_name = EXCLUDED.first_name,
                  source = COALESCE(users.source, EXCLUDED.source),
-                 blocked = false
+                 blocked = false, blocked_at = NULL
            RETURNING *, (xmax = 0) AS inserted""",
         tg_id, username, first_name, source)
 
@@ -77,6 +77,12 @@ ALLOWED_FIELDS = {"goal", "level", "slot", "tz", "unsubscribed", "blocked",
 
 async def set_field(tg_id: int, name: str, value) -> None:
     assert name in ALLOWED_FIELDS
+    if name == "blocked":                          # и когда — для /day
+        await _p().execute(
+            """UPDATE users SET blocked = $2,
+                   blocked_at = CASE WHEN $2 THEN COALESCE(blocked_at, now()) END
+               WHERE tg_id = $1""", tg_id, bool(value))
+        return
     await _p().execute(f"UPDATE users SET {name} = $2 WHERE tg_id = $1", tg_id, value)
 
 
@@ -637,6 +643,36 @@ async def person_card(tg_id: int) -> dict | None:
         "payments": await p.fetch(
             "SELECT provider, status, raw->>'plan' AS plan, created_at FROM payments "
             "WHERE tg_id = $1 ORDER BY id DESC LIMIT 3", tg_id),
+    }
+
+
+async def add_inbox(tg_id: int, text: str) -> None:
+    await _p().execute("INSERT INTO inbox (tg_id, text) VALUES ($1, $2)", tg_id, text)
+
+
+async def day_report(start: datetime, end: datetime) -> dict:
+    """Всё за отрезок времени для /day: что бот отправил и что сёстры сделали в ответ."""
+    p = _p()
+    who = "u.tg_id, u.first_name, u.username"
+    return {
+        "sends": await p.fetch(
+            f"""SELECT {who}, s.key, s.sent_at FROM sends s JOIN users u USING (tg_id)
+                 WHERE s.sent_at >= $1 AND s.sent_at < $2 ORDER BY s.sent_at""", start, end),
+        "done": await done_between(start, end),
+        "inbox": await p.fetch(
+            f"""SELECT {who}, i.text, i.created_at FROM inbox i JOIN users u USING (tg_id)
+                 WHERE i.created_at >= $1 AND i.created_at < $2 ORDER BY i.created_at""", start, end),
+        "feedback": await p.fetch(
+            f"""SELECT {who}, f.mood, f.text FROM feedback f JOIN users u USING (tg_id)
+                 WHERE f.created_at >= $1 AND f.created_at < $2 ORDER BY f.id""", start, end),
+        "paid": await p.fetch(
+            f"""SELECT {who}, py.provider, py.raw->>'plan' AS plan FROM payments py JOIN users u USING (tg_id)
+                 WHERE py.status = 'paid' AND py.created_at >= $1 AND py.created_at < $2
+                 ORDER BY py.created_at""", start, end),
+        "new": await p.fetch(f"SELECT {who}, u.started_at FROM users u WHERE u.created_at >= $1 AND u.created_at < $2",
+                             start, end),
+        "blocked": await p.fetch(f"SELECT {who} FROM users u WHERE u.blocked_at >= $1 AND u.blocked_at < $2",
+                                 start, end),
     }
 
 
