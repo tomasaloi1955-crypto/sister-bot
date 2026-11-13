@@ -123,7 +123,7 @@ async def ask_coach(bot: Bot, live: funnel.Live, today, mode: str | None, now: d
     if not await db.claim_alert(f"livechoice:{today}"):
         return
     await messages.notify_admins(
-        bot, texts.LIVE_ASK_COACH.format(time=f"{start:%H:%M}", grace=config.LIVE_GRACE_MIN),
+        bot, texts.LIVE_ASK_COACH.format(time=messages.coach_time(start), grace=config.LIVE_GRACE_MIN),
         keyboards.live_choice(today.isoformat()))
 
 

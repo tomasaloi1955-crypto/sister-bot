@@ -371,7 +371,7 @@ async def _live_status() -> str:
     return (
         "📡 <b>Эфиры и записи клуба</b> " + ("" if live.on else "— <b>эфиры на паузе</b> (/live on)") + "\n"
         f"Эфиры: {messages.live_text(live)}\n"
-        + (f"Ближайший эфир: {nxt:%d.%m} в {nxt:%H:%M}\n" if nxt else "")
+        + (f"Ближайший эфир: {nxt:%d.%m} в {messages.coach_time(nxt)}\n" if nxt else "")
         + (f"Сегодня: {today_text}\n" if today else "")
         + "Ссылка на эфир: " + (link or "не указана — сёстры увидят «заходи в группу клуба»") + "\n\n"
         f"🔥 «5 раз в неделю»: эфиры в эти дни + записи в {funnel.rec_days_text('6x', live.days) or '—'}. "
@@ -382,7 +382,7 @@ async def _live_status() -> str:
         "Сёстрам удобнее (по анкете):\n"
         f"• {texts.SLOTS.get('day', 'днём')}: {day[0]} всего, из них в клубе {day[1]}\n"
         f"• {texts.SLOTS.get('evening', 'вечером')}: {eve[0]} всего, из них в клубе {eve[1]}\n\n"
-        "Поменять: <code>/live ср пт вс 19:00</code>\n"
+        "Поменять: <code>/live ср пт вс 19:00</code> (время по Алмате)\n"
         "Ссылка на группу: <code>/live link https://t.me/+…</code> (убрать: <code>/live link -</code>)\n"
         "Сегодня эфир: <code>/live live</code>, эфир и для «3 раза»: <code>/live all</code>\n"
         "Сегодня эфира не будет — всем запись: <code>/live rec</code>\n"

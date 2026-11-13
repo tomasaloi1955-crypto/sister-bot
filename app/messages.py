@@ -260,6 +260,13 @@ def club_vars(live: funnel.Live) -> dict:
             "rec_days": funnel.rec_days_text("6x", live.days)}
 
 
+def coach_time(start) -> str:
+    """«20:00 по Алмате (18:00 по Москве)» — время эфира в сообщениях тренеру."""
+    local = start.astimezone(funnel.zone(config.DEFAULT_TZ)).strftime("%H:%M")
+    msk = start.astimezone(funnel.zone("Europe/Moscow")).strftime("%H:%M")
+    return f"{local} по Алмате ({msk} по Москве)"
+
+
 def local_time(start, tz: str | None) -> str:
     return start.astimezone(funnel.zone(tz or config.DEFAULT_TZ)).strftime("%H:%M")
 
