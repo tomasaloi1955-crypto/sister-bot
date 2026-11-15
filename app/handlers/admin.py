@@ -16,7 +16,7 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import (BufferedInputFile, CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup,
                            Message)
 
-from .. import config, db, funnel, keyboards, messages, payments, sender, texts, tribute_router
+from .. import config, db, funnel, keyboards, messages, payments, programs, sender, texts, tribute_router
 
 log = logging.getLogger(__name__)
 router = Router(name="admin")
@@ -31,6 +31,7 @@ HELP = (
     "/live — эфиры клуба: /live ср пт вс 19:00, /live rec — сегодня без эфира, /live all — эфир и для «3 раза», /live skip, /live off\n"
     "Тренировка в записи: просто пришлите видео — номер бот даст сам\n"
     "/upload_club 5 — заменить тренировку клуба №5\n"
+    "/upload_program back — личная тренировка программы (без слова — список программ)\n"
     "/tofree 8 1 — поставить тренировку клуба №8 вместо тренировки №1 бесплатной недели\n"
     "/repeat on — вы на отдыхе: бот сразу шлёт повторы пройденного; /repeat off — снова новые\n"
     "/channels — каналы и группы клуба: какая группа к какому тарифу (поменять кнопкой)\n"
@@ -163,6 +164,19 @@ async def upload_club(message: Message, command: CommandObject, state: FSMContex
     await _ask_content(message, state, int(arg), "day", club=True)
 
 
+@router.message(Command("upload_program"))
+async def upload_program(message: Message, command: CommandObject, state: FSMContext) -> None:
+    key = (command.args or "").strip().lower()
+    if key not in programs.PROGRAMS:
+        have = await db.program_workout_keys()
+        lines = [f"{'✅' if k in have else '⬜'} <code>/upload_program {k}</code> — {t}" for k, t in programs.PROGRAMS.items()]
+        await message.answer("Личные тренировки (бот сам выбирает по анкете):\n\n" + "\n".join(lines))
+        return
+    await state.set_state(Upload.content)
+    await state.update_data(day=0, slot="day", club=False, program=key)
+    await message.answer(f"Программа «{programs.PROGRAMS[key]}».\n\nПришли <b>видео</b> (подпись = текст).\n/cancel — отмена.")
+
+
 async def _ask_content(message: Message, state: FSMContext, day: int, slot: str, club: bool = False) -> None:
     await state.set_state(Upload.content)
     await state.update_data(day=day, slot=slot, club=club)
@@ -209,6 +223,12 @@ async def upload_text(message: Message, state: FSMContext, bot: Bot) -> None:
 async def _save(message: Message, state: FSMContext, bot: Bot, video: str | None, text: str) -> None:
     data = await state.get_data()
     await state.clear()
+    if data.get("program"):
+        key = data["program"]
+        await db.save_program_workout(key, video, text.strip())
+        await message.answer(f"✅ Сохранено: программа «{programs.PROGRAMS[key]}». Теперь её получают сёстры, "
+                             "которым она подходит по анкете (вместо общей тренировки бесплатной недели).")
+        return
     if data.get("club"):
         await db.save_club_workout(data["day"], video, text.strip())
         await message.answer(f"✅ Сохранено: клуб, тренировка №{data['day']}. Вот как увидит участница:")

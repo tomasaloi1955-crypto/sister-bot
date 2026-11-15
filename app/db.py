@@ -320,6 +320,21 @@ async def delete_club_workout(n: int) -> bool:
     return row is not None
 
 
+async def save_program_workout(program: str, video: str | None, text: str) -> None:
+    await _p().execute(
+        """INSERT INTO program_workouts (program, video, text) VALUES ($1, $2, $3)
+           ON CONFLICT (program) DO UPDATE SET video = EXCLUDED.video, text = EXCLUDED.text, updated_at = now()""",
+        program, video, text)
+
+
+async def get_program_workout(program: str) -> asyncpg.Record | None:
+    return await _p().fetchrow("SELECT * FROM program_workouts WHERE program = $1 AND video IS NOT NULL", program)
+
+
+async def program_workout_keys() -> set[str]:
+    return {r["program"] for r in await _p().fetch("SELECT program FROM program_workouts WHERE video IS NOT NULL")}
+
+
 async def get_club_workout(n: int) -> asyncpg.Record | None:
     return await _p().fetchrow("SELECT * FROM club_workouts WHERE n = $1", n)
 

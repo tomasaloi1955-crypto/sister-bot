@@ -140,6 +140,14 @@ CREATE TABLE IF NOT EXISTS club_workouts (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- Личные тренировки по анкете (app/programs.py): одна на программу
+CREATE TABLE IF NOT EXISTS program_workouts (
+    program    TEXT PRIMARY KEY,
+    video      TEXT,
+    text       TEXT NOT NULL DEFAULT '',
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 -- Участницы клуба: каждая проходит тренировки с №1 в своём ритме (3x — 3 в неделю, 6x — 6)
 CREATE TABLE IF NOT EXISTS club_members (
     tg_id      BIGINT PRIMARY KEY REFERENCES users (tg_id),
