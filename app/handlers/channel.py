@@ -15,7 +15,7 @@ import time
 from aiogram import Bot, Router
 from aiogram.types import ChatJoinRequest, InlineKeyboardButton, InlineKeyboardMarkup
 
-from .. import config, messages, texts
+from .. import config, male_names, messages, texts
 
 log = logging.getLogger(__name__)
 router = Router(name="channel")
@@ -48,10 +48,37 @@ def _seen_recently(chat_id: int, user_id: int) -> bool:
     return False
 
 
+def who_text(user) -> str:
+    """«Ахмед Алиев @ahmed (id 7)» — для сообщений админам."""
+    full = " ".join(x for x in (user.first_name, getattr(user, "last_name", None)) if x) or "без имени"
+    return (html.escape(full) + (f" @{html.escape(user.username)}" if user.username else "")
+            + f" (id {user.id})")
+
+
+async def _decline_male(req: ChatJoinRequest, bot: Bot, why: str) -> None:
+    """Канал только для сестёр: заявку с мужским именем/ником отклоняем молча."""
+    title = html.escape(req.chat.title or str(req.chat.id))
+    try:
+        await req.decline()
+        result = "🚫 отклонена"
+    except Exception as e:
+        log.exception("Не удалось отклонить заявку %s", req.from_user.id)
+        result = f"⚠️ отклонить не смогла ({html.escape(str(e))[:200]}) — отклоните вручную"
+    log.info("Заявка %s в %s: %s — %s", req.from_user.id, req.chat.id, why, result)
+    await messages.notify_admins(
+        bot, f"🙅‍♂️ Заявка в «{title}»: {who_text(req.from_user)} — {html.escape(why)}, {result}.\n"
+             "Если это сестра — добавьте её в канал вручную.")
+
+
 @router.chat_join_request()
 async def join_request(req: ChatJoinRequest, bot: Bot) -> None:
     if _seen_recently(req.chat.id, req.from_user.id):
         log.info("Повтор заявки %s в %s — пропускаю", req.from_user.id, req.chat.id)
+        return
+    u = req.from_user
+    why = male_names.looks_male(u.first_name, getattr(u, "last_name", None), u.username)
+    if why:
+        await _decline_male(req, bot, why)
         return
     source = source_from_link(req.invite_link.name if req.invite_link else None)
     me = await bot.me()
