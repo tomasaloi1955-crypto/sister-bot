@@ -18,7 +18,8 @@ from aiogram.types import CallbackQuery, ChatMemberUpdated, Message
 from aiogram.types import InlineKeyboardButton as B
 from aiogram.types import InlineKeyboardMarkup
 
-from .. import config, db, keyboards, messages, payments, sender, texts
+from .. import config, db, keyboards, male_names, messages, payments, sender, texts
+from . import channel
 
 log = logging.getLogger(__name__)
 router = Router(name="club_channels")
@@ -187,11 +188,42 @@ async def club_invite(message: Message, bot: Bot) -> None:
     await message.answer("\n".join(done) or "Групп клуба нет — назначьте тариф в /channels.")
 
 
+async def _male_joined(update: ChatMemberUpdated, bot: Bot, plan: str | None) -> bool:
+    """Вошёл без заявки (по обычной ссылке) с мужским именем/ником.
+    Бесплатный канал (SisterFit и т.п.) — убираем сразу. Платный клуб — только
+    говорим админам: вдруг это муж оплатил подписку жене, решать вам."""
+    old, new = update.old_chat_member.status, update.new_chat_member.status
+    if new not in IN_CHANNEL or old in IN_CHANNEL:
+        return False
+    user = update.new_chat_member.user
+    why = male_names.looks_male(user.first_name, user.last_name, user.username)
+    if not why or user.is_bot:
+        return False
+    title = html.escape(update.chat.title or str(update.chat.id))
+    who = channel.who_text(user)
+    if plan in config.PLANS:
+        await messages.notify_admins(bot, f"🙅‍♂️ В клуб «{title}» вошёл(а) {who} — {html.escape(why)}. "
+                                          "Это клуб, сама не убираю — проверьте.")
+        return False
+    try:
+        await bot.ban_chat_member(update.chat.id, user.id)
+        await bot.unban_chat_member(update.chat.id, user.id, only_if_banned=True)  # убрать, но не навсегда
+        result = "🚫 убран из канала"
+    except Exception as e:
+        log.exception("Не удалось убрать %s из %s", user.id, update.chat.id)
+        result = f"⚠️ убрать не смогла ({html.escape(str(e))[:200]}) — дайте боту право «Блокировка участников»"
+    await messages.notify_admins(bot, f"🙅‍♂️ В «{title}» вошёл {who} — {html.escape(why)}, {result}.\n"
+                                      "Если это сестра — добавьте её обратно вручную.")
+    return True
+
+
 @router.chat_member(F.chat.type.in_(CLUB_CHAT_TYPES))
 async def member_changed(update: ChatMemberUpdated, bot: Bot) -> None:
     """Вступила в канал клуба — купила; вышла (Tribute убрал по окончании подписки) —
     тренировки клуба ей больше не приходят."""
     plan = {r["chat_id"]: r["plan"] for r in await db.club_channels()}.get(update.chat.id)
+    if await _male_joined(update, bot, plan):
+        return
     if plan not in config.PLANS:
         return
     tg_id = update.new_chat_member.user.id
