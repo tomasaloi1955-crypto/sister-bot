@@ -26,3 +26,11 @@ def test_every_result_is_a_program():
     for lim in ("", "pregnant", "postpartum", "pressure", "knees", "back", "varicose", "other"):
         for goal in ("lose", "tone", "back", "energy", None):
             assert pick(goal, "new", lim) in PROGRAMS
+
+
+def test_every_program_has_personal_text():
+    from app import texts
+    assert set(texts.PERSONAL_REASON) == set(PROGRAMS)
+    for key, title in PROGRAMS.items():
+        h = texts.PERSONAL_HEADER.format(day=1, total=3, title=title, reason=texts.PERSONAL_REASON[key])
+        assert title in h and "персональная" in h
