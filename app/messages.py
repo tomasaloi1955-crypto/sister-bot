@@ -60,6 +60,8 @@ async def send_workout(bot: Bot, tg_id: int, day: int, slot: str, track: bool = 
 async def personal_workout(tg_id: int):
     """(ключ, тренировка) программы, подобранной по анкете (app/programs.py); (None, None) — не загружена."""
     u, h = await db.get_user(tg_id), await db.get_health(tg_id)
+    if not h or not h["limits"]:     # вопросы о здоровье пропущены — без анкеты только общие тренировки
+        return None, None
     key = programs.pick(u["goal"] if u else None, u["level"] if u else None, h["limits"] if h else None)
     w = await db.get_program_workout(key)
     return (key, w) if w else (None, None)
