@@ -43,20 +43,26 @@ async def send_workout(bot: Bot, tg_id: int, day: int, slot: str, track: bool = 
 
     track — участнице (не админу-предпросмотру): видео удаляется из чата через
     MEDIA_TTL_HOURS, вместо него остаётся «🔁 Посмотреть снова» (один раз)."""
-    w = await personal_workout(tg_id) if track else None
-    w = w or await db.get_workout(day, slot)
+    key, w = await personal_workout(tg_id) if track else (None, None)
+    if w is None:
+        key, w = None, await db.get_workout(day, slot)
     if w is None:
         log.warning("Нет тренировки на день %s — отправляем заглушку", day)
         return await say(bot, tg_id, texts.WORKOUT_MISSING.format(day=day, total=funnel.WORKOUTS), keyboards.done(day))
-    header = texts.WORKOUT_HEADER.format(day=day, total=funnel.WORKOUTS)
+    if key:   # личная программа: говорим сестре, что тренировка подобрана под неё
+        header = texts.PERSONAL_HEADER.format(day=day, total=funnel.WORKOUTS, title=programs.PROGRAMS[key],
+                                              reason=texts.PERSONAL_REASON[key])
+    else:
+        header = texts.WORKOUT_HEADER.format(day=day, total=funnel.WORKOUTS)
     return await _deliver(bot, tg_id, w, header, keyboards.done(day), track, day, False, is_rewatch)
 
 
 async def personal_workout(tg_id: int):
-    """Тренировка программы, подобранной по анкете (app/programs.py); None — не загружена."""
+    """(ключ, тренировка) программы, подобранной по анкете (app/programs.py); (None, None) — не загружена."""
     u, h = await db.get_user(tg_id), await db.get_health(tg_id)
     key = programs.pick(u["goal"] if u else None, u["level"] if u else None, h["limits"] if h else None)
-    return await db.get_program_workout(key)
+    w = await db.get_program_workout(key)
+    return (key, w) if w else (None, None)
 
 
 async def send_club_workout(bot: Bot, tg_id: int, n: int, track: bool = True, is_rewatch: bool = False) -> str:
